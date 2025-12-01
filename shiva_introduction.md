@@ -3,7 +3,7 @@
 Are you interested in ELF binary patching or building ELF runtime instrumentation modules? I have a powerful and innovative new technology to share with you that may serve you on your journey...
 This multi-part blog-post series is an introductory guide to using Shiva for patching Linux software and for building runtime modules for in-process debugging engines, security mitigations, and more.
 
-In this blogpost series we will cover binary patching, game hacking, and writing security mitigations with Shiva modules. We will demonstrate several DARPA and NASA binary patching challenges that Shiva has solved and we will explore a recent new Linux security mitigation: gASLR (Granular ASLR) which is implemented with a custom Shiva module.
+In this _blogpost series_ we will cover binary patching, game hacking, and writing security mitigations with Shiva modules. We will demonstrate several DARPA and NASA binary patching challenges that Shiva has solved and we will explore a recent new Linux security mitigation: gASLR (Granular ASLR) which is implemented with a custom Shiva module.
 
 It recently dawned on me that I have never even written a blog-post on Shiva; It's use-cases, features, capabilities or even simply how to use it. Other than the Shiva user manual [Found here](https://github.com/advanced-microcode-patching/shiva/blob/main/documentation/shiva_user_manual.pdf) and the [DEFCON 2023 Shiva talk](https://youtu.be/TDMWejaucdg?si=T8dDQF4KxDftP9kM) "Advancing the state of ELF binary patching with Shiva" it remains relatively hidden in the shadows. It is my goal to Demystify Shiva....
 
@@ -19,7 +19,7 @@ Shiva quickly evolved into a custom ELF interpreter designed for loading modules
 
 #### Pragmatic and easy to use
 
-Shiva aims to make software patching  pragmatic and confluent with the natural software development cycle and workflow in Linux while also giving developers the ability to build powerful security modules, instrumentation engines, and debugging modules. Shiva is symbolically driven and easy to use with features like Symbol Interposition, and Function splicing with DWARF local-variable symbol resolution, allowing developers to rapidly patch any part of a programs code or data on-the-fly through symbolic resolution.
+Shiva aims to make software patching  pragmatic and confluent with the natural software development cycle and workflow in Linux while also giving developers the ability to build powerful security modules, instrumentation engines, and debugging modules. Shiva is symbolically driven and easy to use with features like Symbol Interposition, and Function splicing with DWARF line-number and local variable symbol resolution, allowing developers to rapidly patch any part of a programs code or data on-the-fly through symbolic resolution with ease using natural C development. C++ programs can be patched too as we will see, although the patch must be written in C.
 
 #### Flexible, robust and handles hostile binaries
 
@@ -27,9 +27,9 @@ Shiva is flexible, robust and powerful. Shiva is flexible like the dynamic linke
 
 #### Shiva flows with the existing ELF ecosystem
 
-Shiva aims to fit into the existing ELF ABI and compiler and linker toolchain. It does not require custom compilers or custom tools to build software patches. Patches can be compiled with gcc or clang. There is a new shiva-gcc compiler plugin that is necessary for DWARF support in function splice patches, but all of the other features in Shiva do not require custom patch compilation.
+Shiva aims to fit into the existing ELF ABI and compiler and linker toolchain. It does not require custom compilers or custom tools to build software patches. Patches can be compiled with gcc or clang. There is a new (in-the-works) shiva-gcc compiler plugin that helps extend the DWARF support in function splice patches.
 
-Patches are modular and are not installed until program load-time by Shiva. As many patches can be added or removed from a program as needed.
+Patches are modular and are not installed until load-time by the Shiva. This workflow (Similar to dynamic linking of shared libraries) is flexible and allows patches to be removed, edited, and then re-installed in between each execution. There is no hard limit to how large patches can be or how many parts of a program can be patched. This characteristic of Shiva's design transcends the limitations often associated with on-disk binary patching, which poses more limitations on code-injection-space.
 
 #### Innovations in linking concepts
 
@@ -99,9 +99,9 @@ At runtime Shiva builds a program image out of the Shiva module(s). Creating a t
 Shiva patches are generally written in C. There are various Shiva specific C macros that can be leveraged to accomplish patching capabilities such as helper macros, transform macros, register pairing, and dwarf capabilities. These will be discussed during various patching examples in this blog-post. 
 Shiva patches are compiled into the form of ELF relocatable object files. Specifically they must be compiled with a large code model (i.e. gcc -mcmodel=large -c patch.c -o patch.o) Shiva uses ELF relocatable objects as patch objects due to the rich relocatable and symbolic meta-data. Relocatable code contains all of the meta-data necessary to build an entire program image from the one or more compilation units (object files). The relocation meta-data in ELF relocatable objects describe how to link at a more granular level than the relocation types processed by ld-linux.so for dynamic linking ELF shared objects. 
 
-ELF relocatable objects contain .text code and the meta-data that describes how to symbolically link that code *(memory references, function calls, branches, etc.)*. ELF relocatable objects  have granular relocation meta-data compared to shared object files. In my experience ET_REL objects are inherently the superior format for ELF binary patching *due to the intrinsic relationship between binary patching and linking*. Relocatable objects are files that contain code and data that have not yet been linked into a contiguous memory region and contain un-bound symbols. Embedded around the code are the meta-data that describe how to patch it (link it). These meta-data are called ELF relocation records. The ELF section `.rela.text` for example describes what code-locations within the .text section must be patched by `"/bin/ld"` in order to resolve the instruction reference to the target symbol; The target ELF symbol may live within the same compilation unit as the relocated code, or in another compilation unit. Shiva aims to harness the existing power of ELF relocatable objects while also extending the ELF ABI to support what Shiva calls `ELF Transformations`. The original specification in the Shiva repository is out-dated but 
+##### Why Relocatable objects?
 
-
+ELF relocatable objects contain .text code and the meta-data that describes how to symbolically link that code *(memory references, function calls, branches, etc.)*. ELF relocatable objects  have granular relocation meta-data compared to shared object files. In my experience ET_REL objects are inherently the superior format for ELF binary patching *due to the intrinsic relationship between binary patching and linking*. Relocatable objects are files that contain code and data that have not yet been linked into a contiguous memory region and contain un-bound symbols. Embedded around the code are the meta-data that describe how to patch it (link it). These meta-data are called ELF relocation records. The ELF section `.rela.text` for example describes what code-locations within the .text section must be patched by `"/bin/ld"` in order to resolve the instruction reference to the target symbol; The target ELF symbol may live within the same compilation unit as the relocated code, or in another compilation unit. Shiva aims to harness the existing power of ELF relocatable objects while also extending the ELF ABI to evolve the state-of-the-art in ELF program transformation through enhanced linking concepts.
 
 #### Shiva MicroPrograms
 
