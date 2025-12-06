@@ -1,3 +1,6 @@
+![Alt Shiva](https://raw.githubusercontent.com/elfmaster/shiva_blogposts/main/shiva_blog_art.png)
+
+
 # Introduction to Shiva
 
 Are you interested in ELF binary patching or building ELF runtime instrumentation modules? I have a powerful and innovative new technology to share with you that may serve you on your journey...
@@ -92,25 +95,52 @@ Notice that the kernel passes control to `/lib/shiva` first, as Shiva is set as 
 
 ### Shiva modules
 
-What is a Shiva Module you ask? Well Shiva modules are ELF relocatable objects that are built with a large code model. Shiva has two modes: _MicroPatch mode_, and _MicroProgram mode_. A Shiva module can either serve as a patch to fix or modify existing code or data within the program, or a Shiva module can be a MicroProgram (Similar to an LKM but for the process image) that runs before the target ELF executable and begins execution at the `void * shiva_init(shiva_ctx_t *ctx)` function within the module.
+Shiva modules are ELF relocatable objects that are compiled with a large code model. Shiva has two modes: _MicroPatch mode_, and _MicroProgram mode_. A Shiva module can either serve as a patch to fix or modify existing code or data within the program, or a Shiva module can be a MicroProgram (Similar to an LKM but for the process image) that runs before the target ELF executable and begins execution at the `void * shiva_init(shiva_ctx_t *ctx)` function within the module.
 
 At runtime Shiva builds a program image out of the Shiva module(s). Creating a text segment, and a data segment in memory. Each Shiva module has it's own respective PLT and GOT for linking function calls and access to global variables within the target executable. Shiva copies the object-files ELF sections marked SHT_PROGBITS (i.e. .text, .data, etc.) from the Shiva module into their respective anonymously mapped memory segments and effectively creates a program image for the Shiva module within target address space. Shiva applies all of the necessary relocations for the MicroPatch or MicroProgram to be prepared for execution at runtime.
 
-#### Shiva patches (MicroPatch mode)
-
-##### _What is a Shiva patch?_
+#### What is a Shiva patch?
 
 Shiva patches are generally written in C. There are various Shiva specific C macros that can be leveraged to accomplish patching capabilities such as helper macros, transform macros, register pairing, and dwarf capabilities. These will be discussed during various patching examples in this blog-post. 
-Shiva patches are compiled into the form of ELF relocatable object files. Specifically they must be compiled with a large code model (i.e. gcc -mcmodel=large -c patch.c -o patch.o) Shiva uses ELF relocatable objects as patch objects due to the rich relocatable and symbolic meta-data. Relocatable code contains all of the meta-data necessary to build an entire program image from the one or more compilation units (object files). The relocation meta-data in ELF relocatable objects describe how to link at a more granular level than the relocation types processed by ld-linux.so for dynamic linking ELF shared objects. 
+Shiva patches are compiled into the form of ELF relocatable object files. Specifically they must be compiled with a large code model (i.e. gcc -mcmodel=large -c patch.c -o patch.o) Shiva uses ELF relocatable objects as patch objects due to the rich relocatable and symbolic meta-data. Relocatable code contains all of the meta-data necessary to build an entire program image from the one or more compilation units (object files). The relocation meta-data in ELF relocatable objects describe how to link at a more granular level than the relocation types processed by ld-linux.so for dynamic linking ELF shared objects.
 
-##### _Why Relocatable objects?_
+The following is an example of a simple patch written in C that modifies Linux x86_64 Pacman so that the player is invincible. This patch will be explored in-depth later on in the blog-post, along with two other Pacman patches that we will discuss.
+
+![Pacman Gamecheat Patch](https://arcana-research.io/static/pacman_patch3.png)
+
+The patch source must be compiled to into an ELF relocatable object with a large code model. Take a quick peek at this patch below, it is by all means just a standard ET_REL object. This makes Shiva extremely compatible with the ELF toolchain as mentioned previously.
+
+![Pacman patch compiled](https://arcana-research.io/static/pacman_patch_compiled.png)
+
+#### Why Relocatable objects?
 
 ELF relocatable objects contain .text code and the meta-data that describes how to symbolically link that code *(memory references, function calls, branches, etc.)*. ELF relocatable objects  have granular relocation meta-data compared to shared object files. In my experience ET_REL objects are inherently the superior format for ELF binary patching *due to the intrinsic relationship between binary patching and linking*. Relocatable objects are files that contain code and data that have not yet been linked into a contiguous memory region and contain un-bound symbols. Embedded around the code are the meta-data that describe how to patch it (link it). These meta-data are called ELF relocation records. The ELF section `.rela.text` for example describes what code-locations within the .text section must be patched by `"/bin/ld"` in order to resolve the instruction reference to the target symbol; The target ELF symbol may live within the same compilation unit as the relocated code, or in another compilation unit. Shiva aims to harness the existing power of ELF relocatable objects while also extending the ELF ABI to evolve the state-of-the-art in ELF program transformation through enhanced linking concepts.
 
-##### Shiva shared object symbol interposing
+#### Shared object symbol interposing
 
 Shiva, despite it using ET_REL objects as patches, does support a certain type of shared object patching that we will discuss in depth throughout later blog-posts. Specifically when a patch is needed that interposes a shared library function that is not already called by the main executable (e.g. no PLT entry). Shiva can interpose shared library functions that are already linked to the executable and have a PLT entry, within it's normal ET_REL based patching model. Though when the need arises to hook an external shared library function outside of the local PLT then the Shiva prelinker `/bin/shiva-ld` can be used to inject a DT_NEEDED entry in the dynamic segment for a shared object patch. This shared object will have the hooked version of the function which will be linked at runtime. The interposed function can optionally call the original function. *Use dlsym()'s RTLD_NEXT functionality to obtain the original function address.* Global variables within shared libraries can also be interposed using this method.
 
 #### Shiva MicroPrograms
 
-Similarly to Shiva patches a microprogram is also another type of Shiva module and is therefore an ELF relocatable object with a large code model. The only defining difference is that microprograms have an entry point function `void * shiva_init(shiva_ctx_t *ctx)` which is executed right after the ld-linux.so finishes. This is similar to an LKM that has an init_module function except the module is executing in userland and generally is executed right before the target program's `_start()` function
+ELF MicroPrograms are loaded by Shiva at runtime and may execute in one of two phases
+
+1. The init function within the module runs before control is passed to ld-linux.so (pre rtld)
+2. The init function executes after ld-linux.so but before the main executable (post rtld)
+
+The module must be defined with `#_SHIVA_MODULE_PRE_RTLD` or `#_SHIVA_MODULE_POST_RTLD` and if neither are specified it will default to running post rtld.
+
+Shiva modules in phase-1 can call any function or access any global data variable within musl-libc, libelfmaster, libcapstone, or within the target executable itself.
+
+Shiva modules in phase-2 can do all of the above plus access any functions or global data within any of the dynamically linked libraries.
+
+Similarly to Shiva patches a microprogram is also another type of Shiva module and is therefore an ELF relocatable object with a large code model. The only defining difference is that microprograms have an entry point function `void * shiva_init(shiva_ctx_t *ctx)` which is executed right before ld-linux.so is run or after the ld-linux.so finishes. This is similar to an LKM that has an init_module function except the module is executing in userland and it is executed before the target executable _start() begins.
+
+#### Pre-RTLD execution
+
+Shiva modules are prime for setting up powerful instrumentation engines, debugging agents, tracers and more. Shiva modules executing in phase-1 (Pre-RTLD) have extra leverage since they are executing before ld-linux.so has even begun executing. This can be very useful especially if your module wants to mangle rtld auxiliary data such as relocation records or re-write portions of the auxiliary vector or the ELF dynamic segment before they are parsed by ld-linux.so. I call this _RTLD meta-data programming_. A module may use such techniques to manipulate the behavior of the RTLD (ld-linux.so). This can be used for everything from rtld-fuzzing to got/plt hooking, global data re-linking, and stealth arbitrary code injection.
+
+On this note of RTLD meta-data please see Rebecca Shapiro's excellent work [“Weird Machines” in ELF: A Spotlight on the Underappreciated Metadata](https://www.cs.dartmouth.edu/~sergey/wm/woot13-shapiro.pdf). This groundbreaking paper shows the depths of how the dynamic linker can be stretched to its limitations as a Turing-complete weird machine hidden within the RTLD.
+
+#### Post-RTLD execution
+
+Shiva modules which use code that requires symbols from external libraries must run in Post-RTLD mode since ld-linux.so must load and link the necessary libraries for those symbols to bind properly, otherwise Shiva cannot resolve the relocations. Shiva relocations that first require the ld-linux.so to solve the symbols location within a shared library are what Shiva refers to as _Cross Relocations_.
