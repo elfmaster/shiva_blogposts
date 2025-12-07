@@ -1,14 +1,13 @@
-![Alt Shiva](https://raw.githubusercontent.com/elfmaster/shiva_blogposts/main/shiva_blog_art.png)
+![Alt Shiva](https://arcana-research.io/static/shiva_elfmaster.jpeg)
 
 
 # Introduction to Shiva
 
-Are you interested in ELF binary patching or building ELF runtime instrumentation modules? I have a powerful and innovative new technology to share with you that may serve you on your journey...
-This multi-part blog-post series is an introductory guide to using Shiva for patching Linux software and for building runtime modules for in-process debugging engines, security mitigations, and more.
+DARPA funded Advanced ELF binary patching capabilities for for Linux X86_64 and AArch64 with a custom ELF interpreter that loads microprograms, micropatches, and in-process debugging modules.... pushing the limits of the ABI and expanding the ELF workflow. Does this type of thing excite you? If so, keep reading...
 
-In this _blogpost series_ we will cover binary patching, game hacking, and writing security mitigations with Shiva modules. We will demonstrate several DARPA and NASA binary patching challenges that Shiva has solved and we will explore a recent new Linux security mitigation: gASLR (Granular ASLR) which is implemented with a custom Shiva module.
+This multi-part blog-post series is an introductory guide to understanding what Shiva is, how it works and a hands on tutorial to various patches, microprograms and more.. we will cover binary patching, game hacking, and writing security mitigations with Shiva modules. We will demonstrate several DARPA and NASA binary patching challenges that Shiva has solved and we will explore a recent new Linux security mitigation: gASLR (Granular ASLR) which is implemented with a custom Shiva module that randomizes the order of functions and PLT entries at runtime.
 
-It recently dawned on me that I have never even written a blog-post on Shiva; It's use-cases, features, capabilities or even simply how to use it. Other than the Shiva user manual [Found here](https://github.com/advanced-microcode-patching/shiva/blob/main/documentation/shiva_user_manual.pdf) and the [DEFCON 2023 Shiva talk](https://youtu.be/TDMWejaucdg?si=T8dDQF4KxDftP9kM) "Advancing the state of ELF binary patching with Shiva" it remains relatively hidden in the shadows. It is my goal to Demystify Shiva....
+Why did I wait three years to write this blog-post? Well I reckon all good things come in time... aged wine, cigars, or even that LSD you saved from the Grateful Dead concert all those years ago and there was never a more perfect time than now to take it.... sound familiar? Now is the auspicious time to reveal Shiva, my binary hacking play-toy ninja that was tailored for the DARPA AMP program. I am honored to be able to take some time to share more about it as there isn't alot of documentation on Shiva other than the Shiva user manual [Found here](https://github.com/advanced-microcode-patching/shiva/blob/main/documentation/shiva_user_manual.pdf) and the [DEFCON 2023 Shiva talk](https://youtu.be/TDMWejaucdg?si=T8dDQF4KxDftP9kM) "Advancing the state of ELF binary patching with Shiva" Shiva has until now remained relatively hidden in the shadows. It is my goal to Demystify Shiva and humbly share it with the world.
 
 ## What is Shiva?
 
@@ -99,16 +98,20 @@ Shiva modules are ELF relocatable objects that are compiled with a large code mo
 
 At runtime Shiva builds a program image out of the Shiva module(s). Creating a text segment, and a data segment in memory. Each Shiva module has it's own respective PLT and GOT for linking function calls and access to global variables within the target executable. Shiva copies the object-files ELF sections marked SHT_PROGBITS (i.e. .text, .data, etc.) from the Shiva module into their respective anonymously mapped memory segments and effectively creates a program image for the Shiva module within target address space. Shiva applies all of the necessary relocations for the MicroPatch or MicroProgram to be prepared for execution at runtime.
 
-#### What is a Shiva patch?
+### What is a Shiva patch?
 
 Shiva patches are generally written in C. There are various Shiva specific C macros that can be leveraged to accomplish patching capabilities such as helper macros, transform macros, register pairing, and dwarf capabilities. These will be discussed during various patching examples in this blog-post. 
 Shiva patches are compiled into the form of ELF relocatable object files. Specifically they must be compiled with a large code model (i.e. gcc -mcmodel=large -c patch.c -o patch.o) Shiva uses ELF relocatable objects as patch objects due to the rich relocatable and symbolic meta-data. Relocatable code contains all of the meta-data necessary to build an entire program image from the one or more compilation units (object files). The relocation meta-data in ELF relocatable objects describe how to link at a more granular level than the relocation types processed by ld-linux.so for dynamic linking ELF shared objects.
 
 The following is an example of a simple patch written in C that modifies Linux x86_64 Pacman so that the player is invincible. This patch will be explored in-depth later on in the blog-post, along with two other Pacman patches that we will discuss.
 
+#### Patch source code example: _Pacman game-cheat patch_
+
 ![Pacman Gamecheat Patch](https://arcana-research.io/static/pacman_patch3.png)
 
-The patch source must be compiled to into an ELF relocatable object with a large code model. Take a quick peek at this patch below, it is by all means just a standard ET_REL object. This makes Shiva extremely compatible with the ELF toolchain as mentioned previously.
+The patch source must be compiled to into an ELF relocatable object with a large code model. Take a quick peek at the compiled pacman patch below, it is by all means just a standard ET_REL object. This makes Shiva extremely compatible with the ELF toolchain as mentioned previously.
+
+#### Compiled pacman patch: observe ELF patch object
 
 ![Pacman patch compiled](https://arcana-research.io/static/pacman_patch_compiled.png)
 
