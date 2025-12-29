@@ -1,4 +1,4 @@
-![Alt Shiva](https://arcana-research.io/static/shiva_elfmaster.jpeg)
+![Alt Shiva](https://arcana-research.io/static/shiva_new.jpg)
 
 
 # Introduction to Shiva
@@ -20,7 +20,7 @@ here](https://github.com/advanced-microcode-patching/shiva/blob/main/documentati
 and the [DEFCON 2023 Shiva
 talk](https://youtu.be/TDMWejaucdg?si=T8dDQF4KxDftP9kM) "Advancing the state of
 ELF binary patching with Shiva" Shiva has until now remained relatively hidden
-in the shadows. It is my goal to Demystify Shiva and humbly present it with you my
+in the shadows. It is my goal to Demystify Shiva and humbly present it to you my
 dear friends and colleagues.
 
 ## Shiva – A LEJIT Micro-Patching Framework for Linux ELF Binaries
@@ -36,28 +36,28 @@ Unlike the conventional dynamic linker, which loads shared objects (.so files), 
 
 ### Development History and Key Milestones
 
-Shiva originated as a radical new Linux virus infection technique; an experimental “evil” dynamic linker that loads a fully relocatable Virus into memory with self-propagation through PT_INTERP modification (see “Preloading the Linker for Fun and Profit,” tmp.0ut 2021: https://tmpout.sh/2/6.html). It quickly evolved into a mature platform for in-process debugging, tracing, fuzzing, and runtime security hardening via loadable C modules [Toorcamp 2022 presentation](https://talks.toorcon.net/toorcamp-2020-2019/talk/V3PT9U/)
+Shiva originated as a radical new Linux virus infection technique; an experimental “evil” dynamic linker that loads a fully relocatable Virus into memory with self-propagation through PT_INTERP modification (see “Preloading the Linker for Fun and Profit,” tmp.0ut 2021: https://tmpout.sh/2/6.html). It quickly evolved into a platform for in-process debugging, tracing, fuzzing, and runtime security hardening via loadable C modules [Toorcamp 2022 presentation](https://talks.toorcon.net/toorcamp-2020-2019/talk/V3PT9U/)
 
-Since late 2022, Shiva has been funded under Phases 2 and 3 of the DARPA Assured Micropatching (AMP) program. As of 2025, it remains a cornerstone technology in the DARPA Enhanced SBOM for Optimized Software Sustainment (E-BOSS) program, where it serves as the primary runtime mechanism for applying assured binary patches to Linux software at enterprise and mission-critical scale.
+Since late 2022, Shiva has been funded under Phases 2 and 3 of the DARPA Assured Micropatching (AMP) program. As of 2025, it remains a cornerstone technology in the DARPA Enhanced SBOM for Optimized Software Sustainment (E-BOSS) program, where it serves as a Chief binary patching solution.
 
-Current development efforts focus on significantly improved DWARF integration and innovative linking techniques that deliberately lower the expertise barrier: enabling security engineers and patch developers to author effective, production-grade micropatches for ELF binaries with little or no traditional reverse-engineering knowledge required.
+Current development efforts focus on significantly improving DWARF integration and innovative linking techniques that deliberately lower the expertise barrier: enabling security engineers and patch developers to author effective, production-grade software patches for ELF binaries with little or no traditional reverse-engineering knowledge required.
 
-The original design specification remains a valuable reference for foundational concepts, although some implementation details have evolved:  
+The original design specification for Shiva's binary patching capabilities remains a valuable reference for foundational concepts, although some implementation details have evolved:  
 https://github.com/advanced-microcode-patching/shiva/blob/main/documentation/shiva_final_design.pdf
 
 ### A demand for rapid patching of Linux software
 
-Over the past decade, the need for practical Linux binary patching has grown significantly as vulnerabilities rise and vendor patches often take months or longer to arrive. Until recently, options were limited to manual, error-prone workarounds with little automation or ease of use. Shiva aims to help by offering a pragmatic patch development workflow — even for legacy software and when source code isn’t available. This makes it possible to quietly address known security issues, like buffer overflows or unsafe functions, long before official updates are released, helping reduce risk in production systems without fanfare or disruption.
+Over the past decade, the need for practical Linux binary patching has grown significantly as vulnerabilities rise and vendor patches often take months or longer to arrive. Until recently, options were limited to manual, error-prone workarounds with little automation or ease of use. Shiva aims to help by offering a pragmatic patch development workflow — even for legacy software and when source code isn’t available. This makes it possible to quietly patch known security issues, like buffer overflows or unsafe functions, long before official updates are released, helping reduce risk in production systems without disruption.
 
 ### Shiva's high-level binary patching goals
 
 #### Pragmatic and easy to use
 
-Shiva is designed to make binary patching feel natural and seamless within the everyday Linux development workflow. It lets developers write clean, pragmatic patches in C while building powerful security modules, instrumentation, or debugging tools. Thanks to its symbolic approach and user-friendly design, features like ELF symbol interposition and function splicing with line-number and DWARF symbol resolution exist. This means you can quickly and precisely modify code or data in running programs using familiar symbols — almost as easily as editing source. C++ binaries are fully supported too; patches are simply written in C.
+Shiva is designed to make binary patching feel natural and seamless within the everyday Linux development workflow. It lets developers write clean patches within the innate Linux/C development environment. Thanks to its symbolic approach and user-friendly design, features like ELF symbol interposition and function splicing with DWARF symbol resolution exist. This means you can quickly and precisely modify code or data in running programs using familiar symbols — almost as easily as editing source. C++ binaries are fully supported too; patches are simply written in C.
 
-#### Flexible, robust and handles hostile binaries
+#### Flexible and Robust
 
-Shiva is flexible, robust and powerful. Shiva is flexible like the dynamic linker `/lib64/ld-linux.so` but has the granularity of `"/bin/ld"` since it loads ELF relocatable objects. Patches are installed at load-time in a clean and modular fashion that avoids the clunky patching/un-patching/re-patching of on-disk ELF binary patching solutions. Shiva can even patch ELF binaries that have been stripped since it uses the [libelfmaster](https://github.com/elfmaster/libelfmaster) ELF parsing library under the hood which employs elite process-forensics-reconstruction techniques to rebuild the section headers and symbol tables on binaries that have been stripped or corrupted.
+Shiva is flexible like the dynamic linker `/lib64/ld-linux.so` but has the granularity of `"/bin/ld"` since it loads ELF relocatable objects. Patches are installed at load-time in a clean and modular fashion that avoids the clunky patching/un-patching/re-patching of on-disk ELF binary patching solutions. Shiva can even patch ELF binaries that have been stripped since it uses the [libelfmaster](https://github.com/elfmaster/libelfmaster) ELF parsing library under the hood which employs elite process-forensics-reconstruction techniques to rebuild the section headers and symbol tables on binaries that have been stripped or corrupted.
 
 #### Shiva flows with the existing ELF ecosystem
 
@@ -92,7 +92,7 @@ Shiva is built on 17yrs of ELF research and expertise and opens the doors to sev
 
 ## How does Shiva work?
 
-Shiva is a flexible, hybrid dynamic linker that combines the runtime agility of ld-linux.so with the fine-grained relocation power of ET_REL objects. This gives it everything needed to construct or modify a full program image on the fly — whether for patching, loading custom modules, or anything else. As a true ELF interpreter, Shiva is invoked directly by the kernel. You make it the primary interpreter simply by setting /lib/shiva as the PT_INTERP string in an executable (replacing the usual /lib/ld-linux.so).You might wonder: how do normal shared libraries get loaded without the standard dynamic linker in charge? Shiva introduces _interpreter chaining_ — a clean way to run two distinct ELF interpreters in the same process. Shiva starts first, does its work (loading, linking, patching, etc.), then politely loads and hands control to the real ld-linux.so, which proceeds with ordinary library linking as usual. The two interpreters coexist peacefully and complement each other nicely. It’s a rather magical extension of the ELF ecosystem — with more innovations to come throughout the post.
+Shiva is a flexible, hybrid dynamic linker that combines the runtime agility of ld-linux.so with the fine-grained relocation power of ET_REL objects. This gives it everything needed to construct or modify a full program image on the fly — whether for patching, loading custom modules, or anything else. As a true ELF interpreter, Shiva is invoked directly by the kernel. The primary interpreter can be set by replacing the existing path `"/lib/x86_64-linux-gnu/ld-linux.so"` with `"/lib/shiva"`. This happens as part of the pre-linking phase with `shiva-ld`. You might wonder: how do normal shared libraries get loaded without the standard dynamic linker in charge? Shiva introduces _interpreter chaining_ — a clean way to run two distinct ELF interpreters in the same process. Shiva starts first, does its work (loading, linking, patching, etc.), then politely loads and hands control to the real ld-linux.so, which proceeds with ordinary library linking as usual. The two interpreters coexist peacefully and complement each other nicely. It’s a rather magical extension of the ELF ecosystem — with more innovations to come throughout the post.
 
 
 ### ELF Linking workflow examples
@@ -127,10 +127,17 @@ At runtime Shiva builds a program image out of the Shiva module(s). Creating a t
 
 ### What is a Shiva patch?
 
-Shiva patches are generally written in C. There are various Shiva specific C macros that can be leveraged to accomplish patching capabilities such as helper macros, transform macros, register pairing, and dwarf capabilities. These will be discussed during various patching examples in this blog-post. 
-Shiva patches are compiled into the form of ELF relocatable object files. Specifically they must be compiled with a large code model (i.e. gcc -mcmodel=large -c patch.c -o patch.o) Shiva uses ELF relocatable objects as patch objects due to the rich relocatable and symbolic meta-data. Relocatable code contains all of the meta-data necessary to build an entire program image from the one or more compilation units (object files). The relocation meta-data in ELF relocatable objects describe how to link at a more granular level than the relocation types processed by ld-linux.so for dynamic linking ELF shared objects.
+**Shiva patches are written in standard C**, using a handful of lightweight, Shiva-specific macros that make common patching operations straightforward (symbol registration, transformation helpers, register pairing, DWARF access, etc.). These macros will appear naturally in the examples throughout the post.
 
-The following is an example of a simple patch written in C that modifies Linux x86_64 Pacman so that the player is invincible. This patch will be explored in-depth later on in the blog-post, along with two other Pacman patches that we will discuss.
+A Shiva patch is compiled like any ordinary object file, with one required flag:
+
+```
+gcc -mcmodel=large ...
+```
+
+The `-mcmodel=large` flag generates fully 64-bit absolute addressing for all references. Shiva works hard—and usually succeeds—to map each patch module within ±2 GB of the main executable, preserving the assumptions of the default code model. However, because shared libraries can be loaded anywhere in the vast 64-bit address space (especially under heavy ASLR), Shiva cannot guarantee that every library will also fall within that 2 GB window. Using `-mcmodel=large` ensures relocations succeed reliably regardless of where the module, executable, or any shared library ultimately lands.
+
+The following is an example of a simple patch written in C that modifies Linux x86_64 Pacman so that the player is invincible. This patch uses symbol interposition to hook `glutIdleFunc()` to reset the fgState->idle function pointer to `my_idle()` within our patch code.  The patch will be explored in-depth later on in the blog-post, along with two other Pacman patches that we will discuss.
 
 #### Patch source code example: _Pacman game-cheat patch_
 
@@ -144,33 +151,76 @@ The patch source must be compiled to into an ELF relocatable object with a large
 
 #### Why Relocatable objects?
 
-ELF relocatable objects contain .text code and the meta-data that describes how to symbolically link that code *(memory references, function calls, branches, etc.)*. ELF relocatable objects  have granular relocation meta-data compared to shared object files. In my experience ET_REL objects are inherently the superior format for ELF binary patching *due to the intrinsic relationship between binary patching and linking*. Relocatable objects are files that contain code and data that have not yet been linked into a contiguous memory region and contain un-bound symbols. Embedded around the code are the meta-data that describe how to patch it (link it). These meta-data are called ELF relocation records. The ELF section `.rela.text` for example describes what code-locations within the .text section must be patched by `"/bin/ld"` in order to resolve the instruction reference to the target symbol; The target ELF symbol may live within the same compilation unit as the relocated code, or in another compilation unit. Shiva aims to harness the existing power of ELF relocatable objects while also extending the ELF ABI to evolve the state-of-the-art in ELF program transformation through enhanced linking concepts.
+Relocatable object files (ET_REL) are the ideal format for runtime patching because they retain the compiler’s complete, unmodified relocation metadata. Every .rela.* entry remains intact, specifying exactly where and how each symbol reference must be rewritten—down to the byte offset, relocation type, and addend. Executables and shared libraries discard this information at link time; ET_REL files do not. This makes them the only format that guarantees perfect architectural and ABI fidelity without inventing a custom patching language.Shiva builds directly on this foundation with ELF transformations: an ABI-stable extension that adds new metadata sections to describe operations beyond the reach of standard relocations. These transformations enable advanced techniques like function splicing—transplanting patch code into the body of an existing function while inheriting its fully resolved local variables and stack layout via enhanced DWARF support—all without leaving the native ELF ecosystem.
+
 
 #### Shared object symbol interposing
 
-Shiva, despite it using ET_REL objects as patches, does support a certain type of shared object patching that we will discuss in depth throughout later blog-posts. Specifically when a patch is needed that interposes a shared library function that is not already called by the main executable (e.g. no PLT entry). Shiva can interpose shared library functions that are already linked to the executable and have a PLT entry, within it's normal ET_REL based patching model. Though when the need arises to hook an external shared library function outside of the local PLT then the Shiva prelinker `/bin/shiva-ld` can be used to inject a DT_NEEDED entry in the dynamic segment for a shared object patch. This shared object will have the hooked version of the function which will be linked at runtime. The interposed function can optionally call the original function. *Use dlsym()'s RTLD_NEXT functionality to obtain the original function address.* Global variables within shared libraries can also be interposed using this method.
+Although Shiva’s primary patching model relies on ET_REL objects, it also fully supports shared-object-based interposition when needed — a topic we’ll explore in detail in future posts.Within the standard ET_REL workflow, Shiva can already intercept any shared-library function that the main executable directly references via an existing PLT entry. For cases where a patch must hook a library function that the executable does not already call (i.e., no PLT entry exists), Shiva provides a dedicated prelink step through /bin/shiva-ld. This tool injects a new DT_NEEDED entry into the executable’s dynamic segment, forcing the dynamic linker to load a small interposing shared object at runtime.That shared object exports the replacement implementation under the original symbol name, transparently overriding the library version for the process. The replacement can optionally call the original implementation by using dlsym(RTLD_NEXT, "symbol"). The same technique works for interposing global variables defined in shared libraries. This approach complements the ET_REL model, giving developers maximum flexibility while remaining completely compatible with the standard ELF dynamic-linking infrastructure.
 
-#### Shiva MicroPrograms
+### Shiva MicroPrograms
 
-ELF MicroPrograms are loaded by Shiva at runtime and may execute in one of two phases
+MicroPrograms are a special class of Shiva module that execute as short-lived userland programs at precise points during process startup. Unlike ordinary patches, which only modify the target, MicroPrograms run their own code with full access to Shiva’s runtime environment, perfect for designing instrumentation tools and security mitigations.
 
-1. The init function within the module runs before control is passed to ld-linux.so (pre rtld)
-2. The init function executes after ld-linux.so but before the main executable (post rtld)
+A MicroProgram is declared with one of two macros `SHIVA_MODULE_PRE_RLTD` or `SHIVA_MODULE_POST_RTLD`.
 
-The module must be defined with `#_SHIVA_MODULE_PRE_RTLD` or `#_SHIVA_MODULE_POST_RTLD` and if neither are specified it will default to running post rtld.
+If neither is specified, Post-RTLD is the default.
 
-Shiva modules in phase-1 can call any function or access any global data variable within musl-libc, libelfmaster, libcapstone, or within the target executable itself.
+Every MicroProgram must export an entry point:
 
-Shiva modules in phase-2 can do all of the above plus access any functions or global data within any of the dynamically linked libraries.
+```
+void shiva_init(shiva_ctx_t *ctx);
+```
 
-Similarly to Shiva patches a microprogram is also another type of Shiva module and is therefore an ELF relocatable object with a large code model. The only defining difference is that microprograms have an entry point function `void * shiva_init(shiva_ctx_t *ctx)` which is executed right before ld-linux.so is run or after the ld-linux.so finishes. This is similar to an LKM that has an init_module function except the module is executing in userland and it is executed before the target executable _start() begins.
+Shiva calls this function automatically at the chosen phase. Like a loadable kernel module’s `init_module()`, it is the MicroProgram’s constructor — but it runs entirely in user space and completes before the target program’s `_start` is reached.
 
-#### Pre-RTLD execution
+**Pre-RTLD ELF Microprogram**
+  
+These execute in the narrow window before ld-linux.so is loaded. At this stage, only symbols from the executable itself and from Shiva’s bundled support libraries (musl-libc, libelfmaster, libcapstone, etc.) are available to the module. This phase is uniquely powerful for RTLD metadata programming: a Pre-RTLD module can safely rewrite the auxiliary vector, modify .dynamic entries, tamper with relocation tables, or inject stealth code — all before the dynamic linker even begins processing them. This is the same class of techniques explored in Rebecca Shapiro’s seminal “Weird Machines” in ELF paper, where the runtime linker itself is treated as a programmable (and Turing-complete) metadata engine.
 
-Shiva modules are prime for setting up powerful instrumentation engines, debugging agents, tracers and more. Shiva modules executing in phase-1 (Pre-RTLD) have extra leverage since they are executing before ld-linux.so has even begun executing. This can be very useful especially if your module wants to mangle rtld auxiliary data such as relocation records or re-write portions of the auxiliary vector or the ELF dynamic segment before they are parsed by ld-linux.so. I call this _RTLD meta-data programming_. A module may use such techniques to manipulate the behavior of the RTLD (ld-linux.so). This can be used for everything from rtld-fuzzing to got/plt hooking, global data re-linking, and stealth arbitrary code injection.
+**Post-RTLD  ELF Microprogram**  
 
-On this note of RTLD meta-data please see Rebecca Shapiro's excellent work [“Weird Machines” in ELF: A Spotlight on the Underappreciated Metadata](https://www.cs.dartmouth.edu/~sergey/wm/woot13-shapiro.pdf). This groundbreaking paper shows the depths of how the dynamic linker can be stretched to its limitations as a Turing-complete weird machine hidden within the RTLD.
+These modules run after ld-linux.so has loaded and relocated every shared library. Modules executing in this phase therefore have full access to the entire process symbol space, including libc, third-party libraries, and everything else. Any relocations in the ELF microprogram that depend on symbols from shared libraries are handled as cross-relocations and resolved automatically directly after ld-linux.so runs and right before control is passed to the `init_shiva()` function of the microprogram.
 
-#### Post-RTLD execution
+In short, ELF microprograms give developers a clean, well-defined place to run arbitrary initialization code for instrumentation or transformation logic at exactly the right moment — whether you need to manipulate the dynamic linker itself or simply set up instrumentation once the full process image is ready, microprograms give a diverse and rich playground for rapidly developing debugging engines, security mitigations, fuzzing harnesses and more.
 
-Shiva modules which use code that requires symbols from external libraries must run in Post-RTLD mode since ld-linux.so must load and link the necessary libraries for those symbols to bind properly, otherwise Shiva cannot resolve the relocations. Shiva relocations that first require the ld-linux.so to solve the symbols location within a shared library are what Shiva refers to as _Cross Relocations_.
+## Getting started. Building Shiva x86_64
+
+This blog-post will focus on Shiva x86_64 which exists on a separate branch that has not been merged into main yet. The main branch is soley AArch64 Linux support.
+
+### Install libelf
+
+Shiva uses libelfmaster for ELF parsing under the hood, but libelf is required by libdwarf which Shiva recently has added support for.
+
+```
+$ sudo apt-get install libelf-dev
+```
+
+### Install libelfmaster
+
+```
+$ git clone https://github.com:elfmaster/libelfmaster
+$ cd libelfmaster/src
+$ make musl
+$ sudo make musl-install
+```
+
+Installed libelfmaster files should be in /opt/elfmaster.
+
+### Install Shiva for x86_64
+
+The build system is incomplete and messy, I apologize, and I have not yet merged the *x86_64_port* branch into the main branch. The main branch is soley AArch64 support at the moment. Please see the [Shiva user manual](https://github.com/advanced-microcode- patching/shiva/blob/main/documentation/shiva_user_manual.pdf) for instructions on patching in AArch64 
+
+```
+$ git clone https://github.com:advanced-microcode-patching/shiva
+$ cd shiva
+$ git checkout x86_64_port
+$ sudo ./build_dwarf.sh
+$ make
+$ sudo make install
+```
+
+You will have `/lib/shiva` and `/usr/bin/shiva` as well as `/usr/bin/shiva-ld` once the install has finished.
+
+
+### Shiva symbol interposition example
