@@ -221,9 +221,19 @@ $ sudo make install
 You will have `/lib/shiva` and `/usr/bin/shiva` as well as `/usr/bin/shiva-ld` once the install has finished.
 
 
-# Patching with Shiva
+## Patching with Shiva
 
-## Symbol interposition
+Shiva is a multi-faceted binary patching engine that tackles problems with a number of approaches and patching styles covered within this blog-post.
+
+There are two primary approaches to writing a patch:
+
+- Symbol interposition: Re-write code and data on the fly by symbol name. Shiva patches of this nature can interpose on functions or global variables within the ELF executable.
+
+- Function splicing: Uses advanced ELF transformation ABI extensions to allow developer to splice code into an existing function. Shiva re-writes the function from scratch in memory so that it includes the patch code that is now fully embedded and linked into the original function.
+
+Throughout this section we will introduce the reader to both techniques and the various other features that are associated with each primary approach.
+
+### Symbol interposition
 
 The ELF format uses symbols to denote the location of code and data by name. Program functions generally live in the .text section and global variables live within the .data, .rodata, and .bss sections. Shiva allows patch developers to interpose existing symbols; in other words re-link functions and data that have symbols associated with them. Most global functions and global variables within the ELF executable can be re-written on the fly by symbol name. Any symbol within the ELF symbol tables (i.e. `.symtab` or  `.dynsym`) can be symbolically interposed. This type of patching is intuitive and easy for developers.
 
@@ -304,3 +314,174 @@ The tool is relatively simple to use. `shiva-ld` replaces `"/lib/x86_64-linux-gn
 We can now run `./test_rodata` directly and the patch is installed at load-time. Shiva is set as the primary ELF interpreter and the dynamic segment has been updated with meta-data describing the patch location.
 
 
+### Observe the dynamic segment of the prelinked binary "test_rodata"
+
+![patched_dynsegment](https://arcana-research.io/static/patched_dynsegment.png)
+
+The Dynamic segment of the `test_rodata` ELF program has been modified with three new entries that are unknown to the readelf program. The first points to the basename of the patch, the second points to the search path that the patch lives in, and third is the path to the original dynamic linker so that Shiva knows which interpreter to load next.
+
+Now that we know some of the patching basics lets move on to another slightly more complex example that we can build on. :)
+
+## Example2: Re-writing a function and a .bss variable
+
+The next patching example is in the directory `shiva/modules/x86_64_patches/bss_interposing`. Let's take a peek at the source code for the program that we are going to patch. Again the source code is only provided for the sake of learning, we do not require it.
+
+#### test_bss.c source code
+![bss_interposing_prog](https://arcana-research.io/static/bss_interposing_source.png)
+
+The following patch uses symbol interposition to re-write `foo()` and `bss_var`.
+
+#### bss_patch.c source code
+
+![bss_patch](https://arcana-research.io/static/bss_patch.png)
+
+At runtime Shiva will re-link the program `test_bss` so that all references to the interposed symbols are linked to the versions that exist within the patch object.
+
+Run make to build the `test_bss` program and the patch object. The Makefile will also prelink the `test_bss` binary and save it as `test_bss.patched`. Run `sudo make install` to copy the patch object into `/opt/shiva/modules`. Test the patch out by executing the prelinked binary `test_bss.patched`.
+
+### Test bss_patch.c version 1
+
+![test_bss_patched](https://arcana-research.io/static/test_bss_patched.png)
+
+To demonstrate the power of Shiva's symbolic resolution and linking capabilities we can modify our `foo()` patch so that it calls two functions:
+
+1. strdup() -- This function is not used anywhere within the `test_bss` program but it exists within `libc.so` which is linked into the process. This demonstrates Shiva's ability to link the patch to shared library functions.
+ 
+2. bar() -- This function exists within the `test_bss` program and therefore illustrates Shiva's ability to link patch code to functions within the executable.
+
+### Test bss_patch.c version 2
+
+![bss_patch_version2](https://arcana-research.io/static/bss_patch_version2.png)
+
+The patched version of the program now stores a string on the heap, prints it, and then calls `bar()`. The `bar()` function is now called twice: once from `foo()` and once from `main()`.
+
+NOTE: If we had called `malloc` and `strcpy` instead of using `strdup` the patch would have failed.... because `strcpy` is an STT_IFUNC symbol....
+
+## Shiva cannot resolve STT_IFUNC symbols
+
+There are several dozen symbols that are commonly used glibc functions such as `strcpy` that cannot be called from a Shiva patch since Shiva does not yet have explicit support for resolving relocations to symbols that are STT_IFUNC.
+
+### Workaround solution (force musl-libc resolution)
+
+It is obviously desirable to be able to call certain glibc shared library functions that are only available through an `STT_IFUNC` symbol, such as `strcpy`. Since we do not explicitly support this yet, it is possible to instruct Shiva to try resolving each symbol in musl-libc first. The musl-libc library does not make use of `STT_IFUNC` type symbols and can be used by Shiva to link common functions that would otherwise be `STT_IFUNC` symbols in glibc.
+
+The Shiva patch source code should declare the `SHIVA_MODULE_FORCE_MUSL_RESOLUTION`. See `shiva/modules/include/shiva_module.h`.
+
+### IFUNC-Only Symbols in glibc's `libc.so.6` (x86-64)
+
+These functions are exported **exclusively** as `STT_GNU_IFUNC` symbols in modern glibc versions (≈2.30+). They have no duplicate `STT_FUNC` entry in the dynamic symbol table — the symbol points directly to the runtime resolver, which selects the best implementation (scalar, SSE2, AVX2, AVX-512, …) based on CPU features. These functions can only be called from patch source code when `SHIVA_MODULE_FORCE_MUSL_RESOLUTION` is declared.
+
+#### Byte-string functions
+- **strcpy** — copy a string
+- **strncpy** — copy fixed-length string
+- **stpcpy** — copy string and return pointer to terminating null
+- **strcat** — concatenate strings
+- **strncat** — concatenate fixed-length strings
+- **strcmp** — compare two strings
+- **strncmp** — compare fixed-length strings
+- **strchr** / **index** — locate character in string
+- **strrchr** / **rindex** — locate last occurrence of character
+- **strstr** — locate substring
+- **strlen** — compute string length
+- **strnlen** — compute bounded string length
+
+#### Memory functions
+- **memchr** — locate byte in memory block
+- **memrchr** — locate last byte in memory block
+- **rawmemchr** — locate byte without length limit
+
+#### Wide-character (wchar_t) functions
+- **wcslen** — wide-character string length
+- **wcsnlen** — bounded wide-character string length
+- **wcscpy** — copy wide-character string
+- **wcsncpy** — copy fixed-length wide-character string
+- **wcscat** — concatenate wide-character strings
+- **wcsncat** — concatenate fixed-length wide-character strings
+- **wcscmp** — compare wide-character strings
+- **wcsncmp** — compare fixed-length wide-character strings
+- **wcschr** — locate wide character
+- **wcsrchr** — locate last wide character
+- **wcscspn** — span excluding wide characters from set
+- **wcsspn** — span including wide characters from set
+- **wcspbrk** — locate wide character in set
+- **wmemchr** — locate wide character in wide block
+- **wmemrchr** — locate last wide character in wide block
+
+### Shiva patch that forces musl-libc resolution
+
+This is but a quick detour, but an important one. It illustrates how to do two things... 
+
+1. Force Shiva to first check musl-libc (Which is statically linked into Shiva) when resolving global symbols from shared libraries. This allows the patch developer to use the musl-libc version of certain symbols such as `strcpy`.
+
+2. How to use the `SHIVA_HELPER_CALL_EXTERNAL_ARGS` series of macros; sometimes it is desirable for an interposed function, in this case `print_banner()` to perform some check or add in some code before calling the original version of the hooked/interposed function. This technique is often used in kernel rootkits. In our particular case we want to modify the string argument being passed to `print_banner()`. 
+
+Take a look at the following source code: `prog.c` and the patch source code `patch.c`
+
+![force_musl](https://arcana-research.io/static/force_musl_code.png)
+
+Notice that in the patch source code above the macro which enables musl-libc resolution is commented out, and so if we were to try to run `./prog` with this patch.... it would fail to link `strcpy`
+
+#### This patch fails to link to strcpy()
+
+![ifunc_lookup_fails](https://arcana-research.io/static/ifunc_lookup_fails.png)
+
+We try both methods to run the program with the patch, by invoking Shiva directly, and also by trying the prelinked binary `./prog.patched`. In both cases Shiva failed to link `strcpy` since it is an `STT_GNU_IFUNC` symbols. Let's try uncommenting the line `SHIVA_MODULE_FORCE_MUSL_RESOLUTION`.
+
+#### This patch properly links strcpy() via forced musl-libc resolution
+
+![ifunc_lookup_succeeds](https://arcana-research.io/static/ifunc_lookup_succeeds.png)
+
+The patched program is now loaded and linked properly. The logic of our patch is such that it simply hooks `print_banner(char *addstr)`. The hooked `print_banner` modifies the string that is passed in `char *addstr` by appending "+ hello world :)" before passing it to the original `print_banner` function.
+
+
+## Patching NASA ground control
+
+Navigate to the directory `shiva/shiva_modules/x86_64_patches/nasa` and find several patch solutions for the NASA ground-control binary patching challenge from the **DARPA AMP program, phase 3.**
+
+DARPA AMP phase-3 Hackathon... day 2. NASA provides us with two patch challenges, one of which was for a program called `science_dp_integrated`. This little program mimicks a very real bug that NASA supposedly dealt with in parsing a custom network protocol for science data.
+
+The protocol receives a packet that begins with a 6 byte header. Bytes 4 and 5 indicate a 16-bit value that should be interpreted as the packet length. The packet length includes the initial 6 byte header plus the length of PDU's that follow. If there are subsequent headers after one or more PDU then the parsing algorithm should parse that additional header properly, but it does not do this. Instead the algorithm believes that the header is science data.
+
+In the following example I will run ./science_dp_integrated. Take notice that the buggy function `processSciencePacket()` prints the science data (0xdeadbeef, etc.) but every 4 entries it prints a network header mistakedly thinking that it is PDU science data, rather than parsing the header like it should. So essentially the buggy function in ./science_dp_integrated cannot handle packet streams that contain more than one initial packet header.
+
+#### Network stream inputs
+
+1. Triggers bug so that ProcessSciencePacket() interprets subsequent PDU headers as science data
+```
+[HEADER][PDU][PDU][PDU][HEADER][PDU][PDU][PDU]
+```
+
+2. Correct input. The above should be sanitized to look like this. i.e. re-packaged with only
+the leading network header.
+
+```
+[HEADER][PDU][PDU][PDU][PDU][PDU][PDU]
+```
+
+### NASA example. Run ./science_dp_integrated without patch
+
+![science_dp_unpatched](https://arcana-research.io/static/science_dp_unpatched.png)
+
+**Unpatched behavior:**
+
+- Parses initial header → gets total packet length
+- Prints every 6-byte chunk in the payload as if it were science data
+
+In the test packet, real PDUs are 6 byte values that end with **`DEADBEEF`**.  
+But the output contains **four 6-byte chunks without `DEADBEEF`** — these are actually **sub-headers**, not data.
+
+**The bug**: It prints the sub-headers as if they are science-data PDU's
+
+**Goal of the patch**:  Re-package the packet so that it only has a single 6-byte header at the beginning followed only by PDU's. The initial packet header should account for the updated packet length; once the sub-headers are removed the length will have decreased.
+
+![nasa_patch3](https://arcana-research.io/static/nasa_patch3.png)
+
+### Other NASA patches for GroundControl problem
+
+Feel free to explore the other patches that I designed to solve this challenge. There are four patches in total.
+
+- **nasa_patch.c** Works by interposing the `processSciencePacket` function and breaking the packet buffer into multiple packet streams as delimited by the each packet header. Each new sub-packet contains only one packet header followed by PDU's. Each sub-packet is carved out during a loop that steps through the original packet and passed to the original `processSciencePacket` function.
+
+- **nasa_patch_optimized.c** Works the same way but is maximally optimized. It's about 35% less source code than `nasa_patch.c`
+
+- **nasa_splice.c** This patch uses a function splice with DWARF line-number resolution to determine where to patch. The `SHIVA_T_SPLICE_FUNCTION_REPLACE_SRCLINE` is used to splice the patch-code into the function by replacing the code at source line 11 with the body of code in the patch. This patch was quickly designed to show-off the relatively new **DWARF by line number** feature recently at DARPA demo (At the very last minute) but isn't necessarily the best example of how to patch this challenge. Other examples will be shown later on how and when to use **function splicing**.
