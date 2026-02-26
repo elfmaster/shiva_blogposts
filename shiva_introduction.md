@@ -1,4 +1,4 @@
-![Alt Shiva](https://arcana-research.io/static/shiva_blogart_new.jpg)
+[Alt Shiva](https://arcana-research.io/static/shiva_blogart_new.jpg)
 
 # Table of Contents
 
@@ -177,6 +177,7 @@ Shiva remains an advanced, actively developed prototype with more work ahead. Lo
 - Multiple patch objects (and versioned variants)
 - Loading several ELF microprograms simultaneously
 - Inter-communication between loaded patches and microprograms
+
 #### Illustration x.x: Shiva links the ET_REL object into a program image at runtime
 
 ![shiva_module_process_image](https://arcana-research.io/static/shiva_module_process_image.png)
@@ -729,14 +730,21 @@ The patch source code above is rather elegant. It simply patches the `base_func[
 
 All code dispatches to `base_func[23]` will now lead to the `luaB_unpack_secure` function within our patch source code. This function does the proper sanity checking on the integers before returning.
 
-## Granular ASLR for Linux ELF X86_64 PIE
+## Linux gASLR implemented with an ELF microprogram
 
-[Arcana Research](https://arcana-research.io) has recently implemented a powerful security mitigation that we call gASLR (Granular address space layout randomization) using a Shiva ELF microprogram in about 600 lines of C code. [The gASLR module source code can be seen here](https://github.com/advanced-microcode-patching/shiva/blob/x86_64_port/modules/x86_64_modules/aslr/gASLR.c).
+As I have previously mentioned, Shiva can be used to load ELF microprograms. These microprograms can come in the form of powerful security modules for hardening the process image at runtime.
 
+### Arcana Research: gASLR for userland in Linux x86_64
 
-### gASLR ELF requirements
+[Arcana Research](https://arcana-research.io) has recently implemented a powerful security mitigation that we call gASLR (Granular address space layout randomization) using a Shiva ELF microprogram, let's take a peek! [The gASLR module source code can be seen here](https://github.com/advanced-microcode-patching/shiva/blob/x86_64_port/modules/x86_64_modules/aslr/gASLR.c).
 
-- PIE (Position independent executable)
+Load-time gASLR (Granular Address Space Layout Randomization) is a fine-grained defense that randomizes the layout of an executable at function-level granularity during process startup. Unlike standard coarse-grained ASLR—which only shifts entire memory segments (like .text, libraries, stack, and heap) to random base addresses—gASLR reorders individual functions within the main executable's .text section, adjusts intra-text references (calls/jumps), and randomizes (work in progress) the PLT entries to disrupt predictable gadget locations and thwart ROP/JOP/ret2PLT style attacks within the ELF executable.
+
+### gASLR ELF executable requirements
+
+In order for an ELF executable to be compatible with the gASLR Shiva module it must meet the following compilation and linking requirements:
+
+- Compiled and linked as PIE (Position independent executable)
 - Compiled with large code model: `-mcmodel=large`
 - Compiled with `--emit-relocs` flag to preserve the `.rela.text` section
 
@@ -748,8 +756,29 @@ The gASLR.o module is a post-rtld Shiva ELF microprogram that runs at program lo
 
 ### gASLR implementation
 
-The gASLR module moves every function to a new location and as it goes it patches the relevant `r_offset` values in the `.rela.text` section so that Shiva can re-link each function after being moved. You might call this technique  **JIT function transplantation**. Let's give it a whirl...
+The gASLR ELF microprogram must:
+
+1. Move every function within the .text section to a new location in memory
+2. Update the `.rela.text` relocation entries `r_offset` values to align with the new function locations
+3. Apply each `.rela.text` relocation to each function that has been moved. 
+
+You might call this technique  **JIT function transplantation**. 
+
+To illustrate the effects of gASLR I created a simple program called `test.c` that prints the address of it's functions at runtime. With standard ASLR in effect you will notice that the two functions `main()` and `test1()` are always at a fixed offset from the base address of the executable, whereas with gASLR applied to ./test the functions will be mapped to their own base address.
+
+#### Illustration x.x: Source code for test.c in gASLR demo
+
+![gaslr_test_source](https://arcana-research.io/static/gaslr_test_source.png)
+
+Let's compile this program and run it with standard ASLR in effect.
+
+#### Illustration x.x: Running ./test with standard ASLR
+
+![test_without_gaslr](https://arcana-research.io/static/test_without_gaslr.png)
+The program output shows that the address of `main()` and of `test1()` stay at the same fixed offsets from the base address `0x5a3b72d0a000` during each run. Let's apply gASLR to the program and see the difference in the output...
 
 #### Illustration x.x: gASLR in action
 
 ![gASLR_demo](https://arcana-research.io/static/gaslr_prelink.png)
+
+In the program output above we can see that the function addresses change each time to addresses that are at a different offset from the executable base address. The gASLR module is using `mmap()` to create a unique base mapping for each function individually.
