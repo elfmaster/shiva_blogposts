@@ -27,6 +27,7 @@
   - [Install Shiva for x86_64](#install-shiva-for-x86_64)
 - [Patching with Shiva](#patching-with-shiva)
   - [ELF Symbol interposition](#elf-symbol-interposition)
+    - [ELF executable re-linking: On-the-fly relocations](#executable-relinking)
   - [**Example One:** Patching a constant string](#example-one-patching-a-constant-string)
     - [Shiva patch: ro_patch.c](#shiva-patch-ro_patch.c)
     - [Testing our new patch "ro_patch.o" with /usr/bin/shiva](#testing-ro-patch)
@@ -38,21 +39,24 @@
     - [Workaround solution for lack of STT_IFUNC support (force musl-libc resolution)](#ifunc-workaround)
   - [**Example Three:** Patching NASA ground control](#example-three-patching-nasa-ground-control)
     - [Other NASA patches for GroundControl problem](#other-nasa-patches-for-groundcontrol-problem)
-  - [**Example Four**: Pacman game-cheats with Shiva](#example-four-pacman-game-cheats-with-shiva)
+  - [**Example Four**: Pacman game-cheats with Shiva](#example-four)
     - [Pacman patch1: Modify the number of starting lives from 3 to 31337](#pacman-patch1)
     - [Pacman patch2: Keeping the enemies permanently frightened](#pacman-patch2)
     - [Pacman patch3: Invincibility](#pacman-patch3)
 - [DARPA EBOSS binary patching examples](#darpa-eboss-binary-patching-examples)
   - [Download the DARPA challenge repository](#download-the-darpa-challenge-repository)
-  - [redis-server | CVE-2025-46817](#redis-server-challenge)
+  - [**Example five**: redis-server | CVE-2025-46817](#redis-server-challenge)
     - [Vulnerability in static function luaB_unpack](#vulnerability-in-static-function-luab_unpack)
     - [Vulnerability internals](#redis-vulnerability-internals)
     - [How to patch functions linked with a dispatch table? extern base_ifuncs[]](#how-to-patch-base_funcs)
-- [Linux gASLR implemented with an ELF microprogram](#linux-gaslr-implemented-with-an-elf-microprogram)
-  - [Arcana Research: gASLR for userland in Linux x86_64](#arcana-research-gaslr-for-userland-in-linux-x86_64)
+    - [Testing the patched redis-server](#test-patched-redis-server)
+- [**Linux gASLR implemented with an ELF microprogram**](#linux-gaslr-implemented-with-an-elf-microprogram)
+  - [Arcana Research: gASLR for userland in Linux x86_64](#arcana-research-gaslr)
   - [gASLR ELF executable requirements](#gaslr-elf-executable-requirements)
   - [gASLR behavior](#gaslr-behavior)
   - [gASLR implementation](#gaslr-implementation)
+- [ELF binary patching workshop training with Shiva](#shiva-workshop)
+- [ In closing...](#closing)
 
 <a id="darpa-research"></a>
 # DARPA research
@@ -98,7 +102,7 @@ Shiva originated as a radical new Linux virus infection technique; an experiment
 
 Since late 2022, Shiva has been funded under Phases 2 and 3 of the DARPA Assured Micropatching (AMP) program. As of 2025, it remains a cornerstone technology in the DARPA Enhanced SBOM for Optimized Software Sustainment (E-BOSS) program, where it serves as a Chief binary patching solution.
 
-Current development efforts focus on significantly improving DWARF integration and innovative linking techniques that deliberately lower the expertise barrier: enabling security engineers and patch developers to author effective, production-grade software patches for ELF binaries with little or no traditional reverse-engineering knowledge required.
+Current development efforts focus on improving DWARF integration and innovative linking techniques that significantly lower the expertise barrier: enabling security engineers and patch developers to author effective, production-grade software patches for ELF binaries with little or no traditional reverse-engineering knowledge required.
 
 The original design specification for Shiva's binary patching capabilities remains a valuable reference for foundational concepts, although some implementation details have evolved:  
 https://github.com/advanced-microcode-patching/shiva/blob/main/documentation/shiva_final_design.pdf
@@ -123,7 +127,7 @@ Shiva is flexible like the dynamic linker `/lib64/ld-linux.so` but has the granu
 <a id="shiva-flows-with-the-existing-elf-ecosystem"></a>
 #### Shiva flows with the existing ELF ecosystem
 
-Shiva aims to fit into the existing ELF ABI and compiler and linker toolchain. It does not require custom compilers or custom tools to build software patches. Patches can be compiled with gcc or clang. There is a new (in-the-works) shiva-gcc compiler plugin that helps extend the DWARF support in function splice patches.
+Shiva aims to fit into the existing ELF ABI and compiler and linker toolchain. It does not require custom compilers or custom tools to build software patches. Patches can be compiled with gcc or clang. There is new in-the-works shiva-gcc compiler plugin that helps extend the DWARF support in function splice patches. The compiler plugin along with enhanced relocations supporting DWARF location meta-data will be available in a not too distant future release.
 
 Patches are modular and are not installed until load-time by Shiva. This workflow (Similar to dynamic linking of shared libraries) is flexible and allows patches to be removed, edited, and then re-installed in between each execution. There is no hard limit to how large patches can be or how many parts of a program can be patched. This characteristic of Shiva's design transcends the limitations often associated with on-disk binary patching, which poses more limitations on code-injection-space.
 
@@ -164,7 +168,9 @@ Shiva is a flexible, hybrid dynamic linker that combines the runtime agility of 
 
 #### Illustration 1.0: Shiva's ELF linking workflow
 
-![Shiva linking workflow](https://arcana-technologies.io/static/shiva-linking-workflow.png)
+<p class="term-border">
+<img alt="Shiva linking workflow" src="https://arcana-technologies.io/static/shiva-linking-workflow.png">
+</p>
 
 The diagram above illustrates the Shiva linking workflow. Starting with the standard linking workflow on the left of the diagram. Each C source file is compiled into an ELF object file. The object files are linked together to form a final executable image. At runtime the dynamic linker "ld-linux.so" completes the program image by loading shared libraries and linking the code to our executable. For programs that are patched with Shiva the far-right of the diagram shows that there are two ELF interpreters in the same process image `"/lib/shiva"` and `"/lib/ld-linux.so"`. We call this elegant hand-off "Linker chaining". Shiva and ld-linux.so are chained so to speak. Once "/lib/shiva" has finished with loading the patch object into memory it then loads ld-linux.so into memory with it's [userland-exec implementation](https://github.com/advanced-microcode-patching/shiva/blob/620a5380d9fa50570a66c5eadf4d983b3a04e9b2/shiva_ulexec.c#L292) , and then passes control to ld-linux.so to complete setting up the process image.
 
@@ -182,9 +188,11 @@ The diagram illustrates how the Linux kernel, specifically `linux/fs.c:load_elf_
 
 The Shiva dynamic linking workflow generally looks something like this:
 
-![Shiva's dynamic linking workflow](https://arcana-research.io/static/shiva-dynamic-linking-workflow.png)
+<p class="term-border">
+<img alt="Shiva's dynamic linking workflow" src="https://arcana-research.io/static/shiva-dynamic-linking-workflow.png">
+</p>
 
-Notice that the kernel initially hands control to `/lib/shiva`, now the program’s designated ELF interpreter. Shiva uses this early window to load, link, and apply your patch or any required transformations to the program image. Only afterward does it load the real ld-linux.so and transfer control to it.The diagram is intentionally simplified. In reality, the process often involves a round-trip: after ld-linux.so has loaded and linked all shared libraries, control returns to Shiva one more time. Shiva makes this possible by temporarily rewriting the auxiliary vector’s `AT_ENTRY` from the executable’s normal _start to its own `shiva_post_linker()` entry point.This callback is needed only for certain relocations inside the Shiva module—specifically “cross relocations” (or “delayed relocations”) that reference symbols provided by shared libraries. Not all Shiva relocations are delayed; many can be resolved immediately. But when a patch does need a symbol that ld-linux.so will later resolve to a full address, Shiva waits, resolves those remaining entries during the callback to `shiva_post_linker()`, then jumps to the real _start. From the program’s perspective, execution is completely ordinary.
+Notice that the kernel initially hands control to `/lib/shiva`, now the program’s designated ELF interpreter. Shiva uses this early window to load, link, and apply your patch or any required transformations to the program image. Only afterward does it load the real ld-linux.so and transfer control to it.The diagram is intentionally simplified. In reality, the process often involves a round-trip: after ld-linux.so has loaded and linked all shared libraries, control returns to Shiva one more time. Shiva makes this possible by temporarily rewriting the auxiliary vector’s `AT_ENTRY` from the executable’s normal _start to its own `shiva_post_linker()` entry point. This callback is needed only for certain relocations inside the Shiva module—specifically “cross relocations” (or “delayed relocations”) that reference symbols provided by shared libraries. Not all Shiva relocations are delayed; many can be resolved immediately. But when a patch does need a symbol that ld-linux.so will later resolve to a full address, Shiva waits, resolves those remaining entries during the callback to `shiva_post_linker()`, then jumps to the real _start. From the program’s perspective, execution is completely ordinary.
 
 <a id="shiva-modules"></a>
 ### Shiva modules
@@ -221,7 +229,9 @@ Shiva remains an advanced, actively developed prototype with more work ahead. Lo
 
 #### Illustration x.x: Shiva links the ET_REL object into a program image at runtime
 
-![shiva_module_process_image](https://arcana-research.io/static/shiva_module_process_image.png)
+<p class="term-border">
+<img alt="shiva_module_process_image" src="https://arcana-research.io/static/shiva_module_process_image.png">
+</p>
 
 <a id="what-is-a-shiva-patch"></a>
 ### What is a Shiva patch?
@@ -289,7 +299,7 @@ These modules run after ld-linux.so has loaded and relocated every shared librar
 
 In short, ELF microprograms give developers a clean, well-defined place to run arbitrary initialization code for instrumentation or transformation logic at exactly the right moment — whether you need to manipulate the dynamic linker itself or simply set up instrumentation once the full process image is ready, microprograms give a diverse and rich playground for rapidly developing debugging engines, security mitigations, fuzzing harnesses and more.
 
-At the end of the blog-post I will demonstrate a recent Shiva module I designed that implements **gASLR** (granular address space layout randomization).
+At the end of the blog-post I will demonstrate a recent [Shiva module that implements **gASLR** — granular address space layout randomization](#linux-gaslr-implemented-with-an-elf-microprogram)
 
 <a id="getting-started-building-shiva-x86_64"></a>
 ## Getting started. Building Shiva x86_64
@@ -351,8 +361,32 @@ Throughout this section we will introduce the reader to both techniques (Symbol 
 <a id="elf-symbol-interposition"></a>
 ### ELF Symbol interposition
 
-The ELF format uses symbols to denote the location of code and data by name. Program functions generally live in the .text section and global variables live within the .data, .rodata, and .bss sections. Shiva allows patch developers to interpose existing symbols; in other words re-write global code and data on-the-fly by symbol name. Any symbol within the ELF symbol tables (i.e. `.symtab` or  `.dynsym`) can be symbolically interposed. This type of patching is intuitive and easy for developers.
+Shiva gives patch writers the ability to replace a function trivially using symbol interposition. We’ve all seen userland rootkits that re-write libc.so functions by introducing a preloaded library with a new version of the function. In the same spirit Shiva allows patch writers to replace any function in the target ELF executable with a symbol of type STT_FUNC and symbol bindings of STB_GLOBAL or STB_WEAK. The only exception is that the function main() cannot be replaced, although future support is on the way, as it depends on the glibc initialization code that transfers control to main from _start.
 
+Shiva handles handles all of the linking at runtime for the patch, including shared library calls.
+Shiva works in conjunction with the ld-linux.so interpreter to accomplish these goals. All call
+instructions (i.e. branch with link) are given a PLT entry within the patch module at runtime.
+The patch has it’s own PLT/GOT and the GOT is filled in at runtime with the address to every
+function (Both in and out of the module) that are being called. Shiva handles all of the
+runtime relocations prior to passing control to ld-linux.so except for when the relocation
+references symbolic code or data that live within a shared library. A call to libc:printf() from 
+within the patch code have it’s own respective GOT entry. The address of printf() won’t be
+known until ld-linux.so has mapped the shared libaries into memory and procesed their
+relocations. To handle this scenario Shiva incorporates a Post Linker which waits until ldlinux.so has processed all of the symbol relocations for each shared library, and then
+finalizes fixing up the patch modules GOT with the addresses to each respective shared
+library symbol.
+
+### Shiva Post Linker
+The Shiva Post Linking Phase is a great example of what Shiva refers to as Cross-ELFRelocations (Defined as a relocation who’s computation relies on the results of a
+secondary relocation solved by an entirely separate runtime linker – One linker must wait
+on the other to satisfy the Cross-Relocation) In particular though, the Shiva-Post-Linker is
+a linking mechanism that delays certain relocations from being processed until the standard
+RTLD “ld-linux.so” has finished mapping in each shared library and processing their
+respective relocations. In the event that Shiva has to fill in the PLT/GOT entry to resolve a
+function, such as printf() in the patch code above for foo(), it must rely on the dynamic linker
+to load and link libc.so:printf() first. After ld-linux.so is finished, it must somehow control
+must somehow be transferred back to Shiva, particularly to the function shiva_post_linker().
+To give some context, here is a screenshot of the shiva post linkers source code
 **NOTE:** _In the event that the executable's symbol table(s) are stripped then Shiva can still interpose functions by their psuedo-symbol name. This symbol table is generated by Shiva's symbol reconstruction capabilities derived from the use of [libelfmaster](https://github.com/elfmaster/libelfmaster) (i.e. `fn_0x10002c0`). Simply append the address of the function to `fn_` to form the psuedo-symbol name._
 
 **Definition from “Oracle linkers and libraries guide”**
@@ -364,6 +398,8 @@ symbols of the same name._
 
 A Shiva patch can interpose any `STB_GLOBAL` symbol within the target ELF executable: Functions, PLT entries, or objects (i.e. global variables). Note that STB_LOCAL symbol interposing is partially supported in an experimental branch. For now it suffices to use the `objcopy` utility to modify a symbol, changing it from `STB_LOCAL` to `STB_GLOBAL` before interposing it with Shiva.
 
+#### ELF executable re-linking at runtime
+
 
 <a id="example-one-patching-a-constant-string"></a>
 ## **Example One:** Patching a constant string
@@ -374,11 +410,15 @@ We only provide the original source code for the sake of illustrating what we wa
 
 #### Illustration 1.5: Original source code: test_rodata.c
 
-![rodata_test.c](https://arcana-research.io/static/rodata_test_src.png)
+<p class="term-border">
+<img alt="rodata_test.c" src="https://arcana-research.io/static/rodata_test_src.png">
+</p>
 
 #### Illustration 1.6: Compile, observe, and run the test_rodata program
 
-![rodata_test](https://arcana-research.io/static/test_rodata.png)
+<p class="term-border">
+<img alt="rodata_test" src="https://arcana-research.io/static/test_rodata.png">
+</p>
 
 
 Our goal is to replace  the global constant: `const char my_string[]` in test_rodata, at runtime, with our new one that is defined in the Shiva patch. 
@@ -387,13 +427,17 @@ Our goal is to replace  the global constant: `const char my_string[]` in test_ro
 ### Shiva patch: ro_patch.c
 
 #### Illustration 1.7
-![ro_patch.c](https://arcana-research.io/static/ro_patch.png)
+<p class="term-border">
+<img alt="ro_patch.c" src="https://arcana-research.io/static/ro_patch.png">
+</p>
 
 The new `my_string[]` global symbol will symbolically interpose the original `my_string[]` within the ELF executable, at runtime. Shiva accomplishes this at runtime by storing the new `my_string[]` within the data segment of the loaded patch module and then re-linking all references to the new symbol location.
 
 #### Illustration 1.8: Compiling ro_patch.c
 
-![ro_patch.o](https://arcana-research.io/static/ro_patch.o.png)
+<p class="term-border">
+<img alt="ro_patch.o" src="https://arcana-research.io/static/ro_patch.o.png">
+</p>
 
 Once the patch is compiled we can easily test it out before fully installing it.
 
@@ -405,7 +449,9 @@ Once the patch is compiled we can easily test it out before fully installing it.
 
 #### Illustration 1.9:  Using Shiva to test the ro_patch.o
 
-![test_ro_patch](https://arcana-research.io/static/test_ro_patch.png)
+<p class="term-border">
+<img alt="test_ro_patch" src="https://arcana-research.io/static/test_ro_patch.png">
+</p>
 
 As demonstrated, we can run the target executable via Shiva, which serves as a loader for the executable and the patch. Shiva implements a [Userland Exec](https://github.com/advanced-microcode-patching/shiva/blob/x86_64_port/shiva_ulexec.c) to load the ELF executable directly. The path to the patch module must be provided through the SHIVA_MODULE_PATH environment variable, as shown above. This approach has the advantage of leaving the original binary completely unmodified on disk, making it ideal for testing patches. However, it requires invoking Shiva directly each time you wish to run the program with the patch applied. This type of loading is not always ideal for real-world patching, and afterall Shiva was designed to be run primarily as an ELF interpreter.
 
@@ -415,7 +461,9 @@ As demonstrated, we can run the target executable via Shiva, which serves as a l
 Launching programs with Shiva as the loader is excellent for testing and in some scenarios it may even serve as a viable patching solution. Generally speaking though most patch developers want to be able directly run the patched program without having to run shiva first, which requires that `"/lib/shiva"` gets set into the `PT_INTERP` segment of the ELF binary that is being patched, setting Shiva as the primary program interpreter. This is where the Shiva Prelinker comes in _(aka `/usr/bin/shiva-ld`)_...
 This tool updates the `PT_INTERP` segment from `“/lib/ld-linux.so”` to `“/lib/shiva”`, and updates the dynamic segment with several new tags describing the path to the patch that should be loaded and linked at runtime: `“/opt/shiva/modules/ro_patch.o”`
 
-![shiva-ld-menu](https://arcana-research.io/static/shiva-ld-menu.png)
+<p class="term-border">
+<img alt="shiva-ld-menu" src="https://arcana-research.io/static/shiva-ld-menu.png">
+</p>
 
 The tool is relatively simple to use. `shiva-ld` replaces `"/lib/x86_64-linux-gnu/ld-linux.so"` with the new interpreter (i.e. `"/lib/shiva"`) and extends the dynamic segment to create several new dynamic tags
 
@@ -436,7 +484,9 @@ The tool is relatively simple to use. `shiva-ld` replaces `"/lib/x86_64-linux-gn
 
 #### Illustration 1.10: shiva-ld example
 
-![shiva-ld_install_ro_patch](https://arcana-research.io/static/prelink_test_rodata.png)
+<p class="term-border">
+<img alt="shiva-ld_install_ro_patch" src="https://arcana-research.io/static/prelink_test_rodata.png">
+</p>
 
 We can now run `./test_rodata` directly and the patch is installed at load-time. Shiva is set as the primary ELF interpreter and the dynamic segment has been updated with meta-data describing the patch location.
 
@@ -445,7 +495,9 @@ We can now run `./test_rodata` directly and the patch is installed at load-time.
 
 #### Illustration 1.11: Custom dynamic segment entries
 
-![patched_dynsegment](https://arcana-research.io/static/patched_dynsegment.png)
+<p class="term-border">
+<img alt="patched_dynsegment" src="https://arcana-research.io/static/patched_dynsegment.png">
+</p>
 
 The Dynamic segment of the `test_rodata` ELF program has been modified with three new entries that are unknown to the readelf program. The first points to the basename of the patch, the second points to the search path that the patch lives in, and third is the path to the original dynamic linker so that Shiva knows which interpreter to load next.
 
@@ -458,13 +510,17 @@ The next patching example is in the directory `shiva/modules/x86_64_patches/bss_
 
 #### Illustration 1.12: test_bss.c source code
 
-![bss_interposing_prog](https://arcana-research.io/static/bss_interposing_source.png)
+<p class="term-border">
+<img alt="bss_interposing_prog" src="https://arcana-research.io/static/bss_interposing_source.png">
+</p>
 
 The following patch uses symbol interposition to re-write `foo()` and `bss_var`.
 
 #### Illustration 1.13: bss_patch.c source code
 
-![bss_patch](https://arcana-research.io/static/bss_patch.png)
+<p class="term-border">
+<img alt="bss_patch" src="https://arcana-research.io/static/bss_patch.png">
+</p>
 
 At runtime Shiva will re-link the program `test_bss` so that all references to the interposed symbols are linked to the versions that exist within the patch object.
 
@@ -472,7 +528,9 @@ Run make to build the `test_bss` program and the patch object. The Makefile will
 
 #### Illustration 1.14: Test bss_patch.c version 1
 
-![test_bss_patched](https://arcana-research.io/static/test_bss_patched.png)
+<p class="term-border">
+<img alt="test_bss_patched" src="https://arcana-research.io/static/test_bss_patched.png">
+</p>
 
 To demonstrate the power of Shiva's symbolic resolution and linking capabilities we can modify our `foo()` patch so that it calls two functions:
 
@@ -482,7 +540,9 @@ To demonstrate the power of Shiva's symbolic resolution and linking capabilities
 
 #### Illustration 1.15: Test bss_patch.c version 2
 
-![bss_patch_version2](https://arcana-research.io/static/bss_patch_version2.png)
+<p class="term-border">
+<img alt="bss_patch_version2" src="https://arcana-research.io/static/bss_patch_version2.png">
+</p>
 
 The patched version of the program now stores a string on the heap, prints it, and then calls `bar()`. The `bar()` function is now called twice: once from `foo()` and once from `main()`.
 
@@ -552,19 +612,25 @@ Take a look at the following source code: `prog.c` and the patch source code `pa
 
 #### Illustration 1.16: Force musl-libc resolution
 
-![force_musl](https://arcana-research.io/static/force_musl_code.png)
+<p class="term-border">
+<img alt="force_musl" src="https://arcana-research.io/static/force_musl_code.png">
+</p>
 
 Notice that in the patch source code above the macro which enables musl-libc resolution is commented out, and so if we were to try to run `./prog` with this patch.... it would fail to link `strcpy`
 
 #### Illustration 1.17: This patch fails to link to strcpy()
 
-![ifunc_lookup_fails](https://arcana-research.io/static/ifunc_lookup_fails.png)
+<p class="term-border">
+<img alt="ifunc_lookup_fails" src="https://arcana-research.io/static/ifunc_lookup_fails.png">
+</p>
 
 We try both methods to run the program with the patch, by invoking Shiva directly, and also by trying the prelinked binary `./prog.patched`. In both cases Shiva failed to link `strcpy` since it is an `STT_GNU_IFUNC` symbols. Let's try uncommenting the line `SHIVA_MODULE_FORCE_MUSL_RESOLUTION`.
 
 #### Illustration 1.18: This patch properly links strcpy() via forced musl-libc resolution
 
-![ifunc_lookup_succeeds](https://arcana-research.io/static/ifunc_lookup_succeeds.png)
+<p class="term-border">
+<img alt="ifunc_lookup_succeeds" src="https://arcana-research.io/static/ifunc_lookup_succeeds.png">
+</p>
 
 The patched program is now loaded and linked properly. The logic of our patch is such that it simply hooks `print_banner(char *addstr)`. The hooked `print_banner` modifies the string that is passed in `char *addstr` by appending "+ hello world :)" before passing it to the original `print_banner` function.
 
@@ -597,7 +663,9 @@ the leading network header.
 
 ### NASA example. Run ./science_dp_integrated without patch
 
-![science_dp_unpatched](https://arcana-research.io/static/science_dp_unpatched.png)
+<p class="term-border">
+<img alt="science_dp_unpatched" src="https://arcana-research.io/static/science_dp_unpatched.png">
+</p>
 
 **Unpatched behavior:**
 
@@ -613,7 +681,9 @@ But the output contains **four 6-byte chunks without `DEADBEEF`** — these are 
 
 #### Illustration 1.19: NASA ground-control patch source code
 
-![nasa_patch3](https://arcana-research.io/static/nasa_patch3.png)
+<p class="term-border">
+<img alt="nasa_patch3" src="https://arcana-research.io/static/nasa_patch3.png">
+</p>
 
 **The patch example illustrates notable features:**
 
@@ -625,7 +695,9 @@ Let's take a look at the patch in action. We will use `shiva-ld` to prelink the 
 
 #### Illustration 1.x: NASA Ground control patch demo: nasa_patch3.o
 
-![nasa_demo](https://arcana-research.io/static/nasa_patch3_demo.png)
+<p class="term-border">
+<img alt="nasa_demo" src="https://arcana-research.io/static/nasa_patch3_demo.png">
+</p>
 
 <a id="other-nasa-patches-for-groundcontrol-problem"></a>
 ### Other NASA patches for GroundControl problem
@@ -639,8 +711,9 @@ Feel free to explore the other patches that I designed to solve this challenge. 
 - **nasa_splice.c** This patch uses a function splice with DWARF line-number resolution to determine where to patch. The `SHIVA_T_SPLICE_FUNCTION_REPLACE_SRCLINE` is used to splice the patch-code into the function by replacing the code at source line 11 with the body of code in the patch. This patch was quickly designed to show-off the relatively new **DWARF by line number** feature recently at DARPA demo (At the very last minute) but isn't necessarily the best example of how to patch this challenge. Other examples will be shown later on how and when to use **function splicing**.
 
 
-<a id="pacman-game-cheats"></a>
+<a id="example-four"></a>
 ## Example Four: Pacman game-cheats with Shiva
+
 
 ![Alt pacman](https://arcana-research.io/static/shiva_pacman.png)
 
@@ -655,7 +728,9 @@ A quick glance with `objdump` will show that the `lives` variables lives within 
 
 #### Illustration 1.20: objdump -D pacman
 
-![Pacman _lives_variable](https://arcana-research.io/static/pacman_lives_variable.png)
+<p class="term-border">
+<img alt="Pacman _lives_variable" src="https://arcana-research.io/static/pacman_lives_variable.png">
+</p>
 
 
 ### Pacman patch example1: pacman_edit_lives.c
@@ -666,7 +741,9 @@ This patch interposes the `lives` variable which we initialize to 31337, the new
 
 #### Illustration 1.21: Source code and patch example for shiva_edit_lives.c
 
-![pacman_edit_lives](https://arcana-research.io/static/pacman_edit_lives.png)
+<p class="term-border">
+<img alt="pacman_edit_lives" src="https://arcana-research.io/static/pacman_edit_lives.png">
+</p>
 
 In the Pacman example we have a full set of ELF symbols with the `.symtab` section present and therefore we are able to trivially patch the `lives` global variable. This particular patching technique will not work if the Pacman binary is stripped. Shiva can patch binaries that have been stripped to an extent since the `.symtab` is partially reconstructed with `STT_FUNC` symbols but not `STT_OBJECT`. _(See libelfmaster forensics reconstruction capabilities)_ It is therefore auspicious to have a full set of ELF symbols in the executable, otherwise Shiva is limited to interposing PLT functions and dynamic global data (i.e. from shared libraries).
 
@@ -681,20 +758,26 @@ This patch hooks a function named `GlutIdleFunc@PLT` that lives in `libglut.so`.
 
 #### Illustration 1.22 Patch source code: perma_frighten.c
 
-![pacman_frightened_patch](https://arcana-research.io/static/frightened_patch.png)
+<p class="term-border">
+<img alt="pacman_frightened_patch" src="https://arcana-research.io/static/frightened_patch.png">
+</p>
 
 In the OpenGL world the `glutIdleFunc()` initializes the `fgState->idle` function pointer which points to a function  that is frequently executed during the main game loop during idle periods at the beginning of each new loop. The patch hooks `glutIdleFunc@PLT` using symbol interposition semantics.  The new `glutIdleFunc()` defined within our patch sets the idle function pointer `fgState->idle`. Redirecting it from Pacman's `idle()` function to the new `my_idle()` function that is defined in the patch source code. The `fgState->idle()` function pointer is called at the beginning of the main game loop, in our case calling `my_idle()`, which is an ideal spot to reset the `frightened` variable to true. This causes the enemies that have become frightened to stay in frightened for the duration of their lives.
 
 #### Illustration 1.23: objdump disassembly showing call to GlutIdleFunc@PLT
 
-![glutidle_plt_call](https://arcana-research.io/static/glutidle_plt_call.png)
+<p class="term-border">
+<img alt="glutidle_plt_call" src="https://arcana-research.io/static/glutidle_plt_call.png">
+</p>
 
 
 The `main()` function in the Pacman executable calls glutIdleFunc() which our patch hooks to redirect the idle routine. Here goes!
 
 #### Illustration 1.24: Pacman perma-frighten demo
 
-![perma_frighten_demo](https://arcana-research.io/static/perma_frighten_demo.png)
+<p class="term-border">
+<img alt="perma_frighten_demo" src="https://arcana-research.io/static/perma_frighten_demo.png">
+</p>
 
 <a id="usage-of-extern-keyword"></a>
 #### Notice the usage of **extern** keyword
@@ -712,7 +795,9 @@ The enemies never return back into their normal aggressive state and therefore t
 
 #### Illustration 1.25: Pacman patch source code: pacman_immortal.c
 
-![pacman_invincible_source](https://arcana-research.io/static/pacman_immortal.c.png)
+<p class="term-border">
+<img alt="pacman_invincible_source" src="https://arcana-research.io/static/pacman_immortal.c.png">
+</p>
 
 The  `pacman_immortal.c` patch works similarly to the last patch since it also hooks the `fgState->idle` function pointer. It also uses the `extern` C keyword to link in the `stateGame` global object from the pacman executable; it is of type `enum {BEGIN, PLAY, DIE, OVER}`. If the state of the game has become `DIE` then we simply reset it to the value `PLAY` from within the hooked `idle()` function at each game loop iteration.
 
@@ -720,7 +805,9 @@ In the previous Pacman hacking examples we have tested the patches using Shiva a
 
 #### Illustration 1.26: Pacman immortal cheat demo
 
-![pacman_immortal_demo](https://arcana-research.io/static/pacman_immortal_demo.png)
+<p class="term-border">
+<img alt="pacman_immortal_demo" src="https://arcana-research.io/static/pacman_immortal_demo.png">
+</p>
 
 As shown above Pacman is covered by one of the enemies mid-game without dying! That is all for the Pacman demo's. 
 
@@ -766,14 +853,18 @@ The vulnerability is in the statically declared function `luaB_unpack` that is c
 
 The vulnerable function in question is the `luaB_unpack` function. Defined in `/lua/src/lbaselibc.c` as a `static` function.
 
-![lua_unpack_source](https://arcana-research.io/static/lua_unpack_source.png)
+<p class="term-border">
+<img alt="lua_unpack_source" src="https://arcana-research.io/static/lua_unpack_source.png">
+</p>
 
 <a id="how-to-patch-base_funcs"></a>
 The `luaB_unpack` function is called indirectly via an array of function pointers, take a look...
 
 #### Illustration 1.28: luaL_Reg base_funcs[]
 
-![lua_base_funcs](https://arcana-research.io/static/lua_base_funcs.png)
+<p class="term-border">
+<img alt="lua_base_funcs" src="https://arcana-research.io/static/lua_base_funcs.png">
+</p>
 
 How do we patch a function like this one that is called indirectly from a table of function pointers? There are several problems it seems really...
 
@@ -790,7 +881,9 @@ For some more context the challenge ELF binary is at path `darpa-shiva-challenge
 <a id="redis-patch-source"></a>
 #### Illustration 1.29:  redis-server patch: luab_unpack_secure.c
 
-![redis-lua-patch](https://arcana-research.io/static/redis_lua_patch.png)
+<p class="term-border">
+<img alt="redis-lua-patch" src="https://arcana-research.io/static/redis_lua_patch.png">
+</p>
 
 The patch source code above is rather elegant. It simply patches the `base_func[22]` function pointer which is where the address to `luaB_unpack` is stored. Our patch interposes the function `initServer` because it is an ideal place to:
 
@@ -800,16 +893,59 @@ The patch source code above is rather elegant. It simply patches the `base_func[
 
 All code dispatches to `base_func[23]` will now lead to the `luaB_unpack_secure` function within our patch source code. This function does the proper sanity checking on the integers before returning.
 
+<a id="test-patched-redis-server"></a>
+#### Test redis-server patch
+
+Look for the script ./darpa-shiva-challenges/redis/pov1.py.  The pov1.py script triggers the vulnerability in redis-server to determine whether the server handles the response securely.  I will demonstrate...
+
+
+#### Illustration x.x: Testing unpatched redis-server with pov1.py
+
+<p class="term-border">
+<img alt="gaslr_test_source" src="https://arcana-research.io/static/redis-unpatched.png">
+</p>
+
+We can see that the `pov1.py` results are Vulnerable because it was able to get the `redis-server` to crash.
+
+So let's install our patch with Shiva. It turns out that this binary is quite large and complex which means that it takes Shiva painstakingly long to perform the runtime analysis, generating on-the-fly relocations for the ELF executable....
+
+This means that if you are going to use Shiva as the loader, i.e.
+
+```
+SHIVA_MODULE_PATH=./luab_unpack_secure.o shiva ./redis-server
+```
+
+The Shiva loader performs comprehensive control-flow analysis at load time, which can take upwards of 30 minutes for complex binaries such as redis-server before transferring control to the target program. While this overhead is typically insignificant for standard applications, the shiva-ld prelinking utility addresses this by conducting the analysis a single time and embedding the results in custom ELF sections (.shiva.branch, .shiva.xref, etc.). At runtime, these sections allow Shiva to rapidly reconstruct the required linking metadata, resulting in near-instant binary loading.
+ 
+You do not need to re-run shiva-ld after modifying a patch. Simply replace the object file (e.g. luab_unpack_secure.o) in the module search path that was specified by the `shiva-ld` tools `-s` flag. Shiva automatically loads the updated patch on the next execution of the instrumented binary (e.g. redis-server.fixed).
+
+Compile the `luab_unpack_secure.c` source code within `darpa-shiva-challenges/redis` using the Makefile, it requires accesses to the lua 5.1 source headers.
+
+Run the following command from the path `darpa-shiva-challenges/redis` to prelink the `redis-server` binary with our patch object: `luab_unpack_secure.o`.
+
+```shiva-ld -e redis-server -i /lib/shiva -p luab_unpack_secure.o -s $PWD -o redis-server.fixed```
+
+ This takes about 30 minutes on my ThinkPad X1 carbon. Go get a cup of coffee and then come back to run it :)
+
+#### Illustration x.x: Testing the patched redis-server with pov1.py
+
+<p class="term-border">
+<img alt="gaslr_test_source" src="https://arcana-research.io/static/redis-patched.png">
+</p>
+
+
+<a id="linux-gaslr-implemented-with-an-elf-microprogram"></a>
 ## Linux gASLR implemented with an ELF microprogram
 
 As I have previously mentioned, Shiva can be used to load ELF microprograms. These microprograms can come in the form of powerful security modules for hardening the process image at runtime.
-
+<a id="arcana-research-gaslr"></a>
 ### Arcana Research: gASLR for userland in Linux x86_64
 
 [Arcana Research](https://arcana-research.io) has recently implemented a powerful security mitigation that we call gASLR (Granular address space layout randomization) using a Shiva ELF microprogram, let's take a peek! [The gASLR module source code can be seen here](https://github.com/advanced-microcode-patching/shiva/blob/x86_64_port/modules/x86_64_modules/aslr/gASLR.c).
 
 Load-time gASLR (Granular Address Space Layout Randomization) is a fine-grained defense that randomizes the layout of an executable at function-level granularity during process startup. Unlike standard coarse-grained ASLR—which only shifts entire memory segments (like .text, libraries, stack, and heap) to random base addresses—gASLR reorders individual functions within the main executable's .text section, adjusts intra-text references (calls/jumps), and randomizes (work in progress) the PLT entries to disrupt predictable gadget locations and thwart ROP/JOP/ret2PLT style attacks within the ELF executable.
 
+<a id="gaslr-elf-executable-requirements"></a>
 ### gASLR ELF executable requirements
 
 In order for an ELF executable to be compatible with the gASLR Shiva module it must meet the following compilation and linking requirements:
@@ -818,12 +954,14 @@ In order for an ELF executable to be compatible with the gASLR Shiva module it m
 - Compiled with large code model: `-mcmodel=large`
 - Compiled with `--emit-relocs` flag to preserve the `.rela.text` section
 
+<a id="gaslr-behavior"></a>
 ### gASLR behavior
 
 The gASLR.o module is a post-rtld Shiva ELF microprogram that runs at program load-time (Just after ld-linux.so finishes) and it moves every function in the `.text` section to a new location in memory, randomly mapping each function to a new base address. 
 
 **NOTE:** Future versions will raise the bar by starting each function at a random offset from the functions base address. Future versions will also re-order the PLT entries and global data.
 
+<a id="gaslr-implementation"></a>
 ### gASLR implementation
 
 The gASLR ELF microprogram must:
@@ -838,17 +976,29 @@ To illustrate the effects of gASLR I created a simple program called `test.c` th
 
 #### Illustration x.x: Source code for test.c in gASLR demo
 
-![gaslr_test_source](https://arcana-research.io/static/gaslr_test_source.png)
+<p class="term-border">
+<img alt="gaslr_test_source" src="https://arcana-research.io/static/gaslr_test_source.png">
+</p>
 
 Let's compile this program and run it with standard ASLR in effect.
 
 #### Illustration x.x: Running ./test with standard ASLR
 
-![test_without_gaslr](https://arcana-research.io/static/test_without_gaslr.png)
+<p class="term-border">
+<img alt="test_without_gaslr" src="https://arcana-research.io/static/test_without_gaslr.png">
+</p>
 The program output shows that the address of `main()` and of `test1()` stay at the same fixed offsets from the base address `0x5a3b72d0a000` during each run. Let's apply gASLR to the program and see the difference in the output...
 
 #### Illustration x.x: gASLR in action
 
-![gASLR_demo](https://arcana-research.io/static/gaslr_prelink.png)
+<p class="term-border">
+<img alt="gASLR_demo" src="https://arcana-research.io/static/gaslr_prelink.png">
+</p>
 
 In the program output above we can see that the function addresses change each time to addresses that are at a different offset from the executable base address. The gASLR module is using `mmap()` to create a unique base mapping for each function individually.
+
+## In closing... 
+
+Thank you for taking the time to read this, please feel free to reach out to me with any questions or comments regarding Shiva. 
+Stay tuned for the next blog-post that will deep dive into Shiva's function splicing capabilities and internals, as well as demonstrations of new DWARF capabilities.
+<a id="closing"></a>
