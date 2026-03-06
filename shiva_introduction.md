@@ -829,7 +829,7 @@ $ git clone http://github.com/advanced-microcode-patching/darpa-shiva-challenges
 $ cd darpa-shiva-challenges/eboss/
 ```
 
-In this blog-post I am going to show you two of the dozen or so challenges presented to me and the Galois team while working on the DARPA EBOSS program. 
+In this blog-post I am going to demonstrate one of the dozen or so challenges presented to me and the Galois team while working on the DARPA EBOSS program. 
 
 <a id="redis-server-challenge"></a>
 ### DARPA EBOSS binary patching challenge: redis-server | CVE-2025-46817
@@ -920,7 +920,7 @@ Run the following command from the path `darpa-shiva-challenges/redis` to prelin
 
 ```shiva-ld -e redis-server -i /lib/shiva -p luab_unpack_secure.o -s $PWD -o redis-server.fixed```
 
- This takes about 30 minutes on my ThinkPad X1 carbon. Go get a cup of coffee and then come back to run it :)
+This takes about 30 minutes on my ThinkPad X1 carbon. Go get a cup of coffee and then come back to run it :)
 
 #### Illustration x.x: Testing the patched redis-server with pov1.py
 
@@ -931,14 +931,99 @@ Run the following command from the path `darpa-shiva-challenges/redis` to prelin
 
 The prelinked executable`redis-server.fixed` does not segfault when running the `pov1.py` script which reports that `"Server handled the script safely"` indicating to us that the patch resolved the security issue. Awesome!
 
-## Introduction to function splicing in Shiva patches
+## Introduction to using the **Function Splicing** feature in Shiva
 
 There are times in a binary patchers life when he comes to realize that Shiva's cool symbol interposition techniques do not always do the trick. There are many cases where a program can only be fixed by splicing code into the existing function. In order to accomplish this Shiva uses enhanced ELF ABI concepts called Transformations. These so-called Transformations are built-on-top of standard relocations. If standard relocations are the meta-data that describe simple (4 to 8 byte) patching operations then **Transformations are the meta-data that describe complex patching operations, such as function splicing.**
+
+Let's begin our journey with an exercise. Change to directory path `shiva/modules/x86_64_patches/fsplice/overflow` and inspect the `vuln.c` source code.
+
+### Function splicing to fix an strcpy overflow
+
+Consider the following vulnerable program's source code. The `strcpy` function is used instead of the arguably more safe function `strncpy`.  This particular program is simple and although it is possible to use symbol interposition to tackle this challenge, we are going to use Shiva's function splicing capabilities. Again we only show the source code for reference as it is not necessary for us to patch the ELF binary with Shiva.
+
+#### Illustration x.x: Source code for fsplice/overflow/vuln.c
+
+<p class="term-border">
+<img alt="strcpy_vuln" src="https://arcana-research.io/static/overflow_vuln.c.png">
+</p>
+
+In the function `parse_string(char *s)` at source line number 12 is the call to `strcpy(buf, s)` that results in a stack overflow if we copy more than 16 bytes or so. This can be fixed by replacing line number 12 with a call to `strncpy(buf, s, sizeof(buf) - 1);`. This can be accomplished with Shiva's function splicing capabilities using the macros in `shiva/modules/include/shiva_module.h`
+
+#### Function splice by address range
+
+To function splice by address range, use the splice macro and provide:
+
+```
+#define SHIVA_T_SPLICE_FUNCTION(fn_name, insert, extend)        \
+```
+
+- The function name that you are splicing into
+- The address at which to the splice code should be inserted
+- The address at which the splice code should end, just before.
+
+If the splice code is smaller than the address range provided then NOP instructions will be padded in automatically by Shiva. If the splice code is larger than the address range provided then Shiva will extend the range making enough room for the new splice code. The target function that is being spliced into is re-written on the fly at load-time: embedding the splice code into the target function body and performing all necessary re-linking operations.
+
+The `SHIVA_T_SPLICE_FUNCTION` macro generates a naked function, it is naked since the code is meant to be transplanted into another function and does not need it's own prologue/epilogue. 
+
+Before we write a splice patch, let's examine the disassembly of the `parse_string` function in the `vuln` program so we can determine where to splice our patch code in. Our goal is to replace the call to `strcpy` with a call to `strncpy`.
+
+
+#### Illustration x.x: Disassembly of vulnerable function parse_string()
+
+<p class="term-border">
+<img alt="strcpy_vuln" src="https://arcana-research.io/static/parse_string_disas.png">
+</p>
+
+The relevant address range to splice into is at address range `0x1179 - 0x118c`. The string `char *str` is passed into register `%rdi` and the destination buffer of 16 bytes is allocated on the stack at `-0x10(%rbp)`.
+
+Check out this function splicing patch `shiva/modules/x86_64_patches/fsplice/overflow/patch.c` -- The goal is to overwrite the code beginning at address `0x1179` all the way up until `0x118c` (So 0x118c is not over-written). Again, if the splice code is larger than the target range which it is in this case, then Shiva will extend the address range making room for the new code and re-linking the target function as needed to accommodate it.
+
+#### Illustration x.x: Function splice patch to fix ./vuln executable
+
+<p class="term-border">
+<img alt="strcpy_splice_fix" src="https://arcana-research.io/static/overflow_patch.c.png">
+</p>
+
+This patch uses the `SHIVA_T_SPLICE_FUNCTION` macro to specify the function and splice range that we are patching. In order to build a Shiva patch that uses function splicing we generally want to make sure that...
+
+- fcf-protection=none: (e.g. disable endbr instructions)
+- -fno-stack-protector: stack protection is disabled
+- The naked attribute is used to disable prologue/epilogue in the splice code
+- The shiva_module.h header file is included by the patch source code
+- -fomit-frame-pointer: (disable frame pointers)
+- -mcmodel=large: A large code mode is used in compilation
+- --gdb: DWARF support, only required for some features (See patch-by-line below)
+
+Generally a `gcc` command such as the following will do the trick:
+```
+gcc -I /opt/shiva/include -fno-stack-protector -fcf-protection=none -fomit-frame-pointer -mcmodel=large -c patch.c
+```
+You can build the current patch and the executable with the `shiva/modules/x86_64_patches/fsplice/overflow/Makefile` as well. Once the function splicing patch is compiled into an ELF relocatable object it has a custom section called `.shiva.transform` that contains two global variables:
+
+- uint64_t __shiva_splice_insert_parse_string
+- uint64_t __shiva_splice_extend_parse_string
+
+Which hold the start and end address respectively. Notice that the symbol names each end with the name of the function we are splicing into: "parse_string". The body of splice-code specified within the `SHIVA_T_SPLICE_FUNCTION` macro is denoted by an `STT_FUNC` symbol in the `.text` section called `__shiva_splice_fn_name_parse_string`. Shiva knows to splice the code specified by `__shiva_splice_fn_name_parse_string` into a function called `parse_string` in the target ELF executable.
+
+#### Illustration x.x: Symbol table of splice patch: fsplice/overflow/patch.o
+
+<p class="term-border">
+<img alt="patch_symtab" src="https://arcana-research.io/static/vuln_symtab.png">
+</p>
+
+Let's disassemble the splice code denoted by symbol `__shiva_splice_fn_parse_string` that will be spliced into the function `parse_string()` at runtime.
+
+#### Illustration x.x: Disassembled splice patch: patch.o
+
+<p class="term-border">
+<img alt="splice_patch1_disas" src="https://arcana-research.io/static/splice_patch1.png">
+</p>
 
 <a id="linux-gaslr-implemented-with-an-elf-microprogram"></a>
 ## Linux gASLR implemented with an ELF microprogram
 
 As I have previously mentioned, Shiva can be used to load ELF microprograms. These microprograms can come in the form of powerful security modules for hardening the process image at runtime.
+
 <a id="arcana-research-gaslr"></a>
 ### Arcana Research: gASLR for userland in Linux x86_64
 
