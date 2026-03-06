@@ -50,7 +50,7 @@
     - [Vulnerability internals](#redis-vulnerability-internals)
     - [How to patch functions linked with a dispatch table? extern base_ifuncs[]](#how-to-patch-base_funcs)
     - [Testing the patched redis-server](#test-patched-redis-server)
-- [**Linux gASLR implemented with an ELF microprogram**](#linux-gaslr-implemented-with-an-elf-microprogram)
+- [**Linux Granular ASLR implemented with an ELF microprogram**](#linux-gaslr-implemented-with-an-elf-microprogram)
   - [Arcana Research: gASLR for userland in Linux x86_64](#arcana-research-gaslr)
   - [gASLR ELF executable requirements](#gaslr-elf-executable-requirements)
   - [gASLR behavior](#gaslr-behavior)
@@ -351,9 +351,9 @@ Shiva is a multi-faceted binary patching engine that tackles problems with a num
 
 There are two primary approaches to writing a patch:
 
-- Symbol interposition: Re-write code and data on the fly by symbol name. Shiva patches of this nature can interpose on functions or global variables within the ELF executable.
+- **Symbol interposition:** Re-write code and data on the fly by symbol name. Shiva patches of this nature can interpose on functions or global variables within the ELF executable.
 
-- Function splicing: Allows developers to insert arbitrary code at any location within an existing function using extended ELF transformation ABI features. Shiva rebuilds the target function in memory, cleanly embedding the spliced code and re-linking the function.  At present, Shiva supports splicing into any number of functions, but only one splice location per function. Multiple splice points per function are planned for a future release.
+- **Function splicing:** Allows developers to insert arbitrary code at any location within an existing function using extended ELF transformation ABI features. Shiva rebuilds the target function in memory, cleanly embedding the spliced code and re-linking the function.  At present, Shiva supports splicing into any number of functions, but only one splice location per function. Multiple splice points per function are planned for a future release.
 
 
 Throughout this section we will introduce the reader to both techniques (Symbol interposition and Function splicing) and the various other features that are associated with each primary approach. The patch examples are simple to begin with and they become more real-world as we move through them.
@@ -369,12 +369,7 @@ instructions (i.e. branch with link) are given a PLT entry within the patch modu
 The patch has it’s own PLT/GOT and the GOT is filled in at runtime with the address to every
 function (Both in and out of the module) that are being called. Shiva handles all of the
 runtime relocations prior to passing control to ld-linux.so except for when the relocation
-references symbolic code or data that live within a shared library. A call to libc:printf() from 
-within the patch code have it’s own respective GOT entry. The address of printf() won’t be
-known until ld-linux.so has mapped the shared libaries into memory and procesed their
-relocations. To handle this scenario Shiva incorporates a Post Linker which waits until ldlinux.so has processed all of the symbol relocations for each shared library, and then
-finalizes fixing up the patch modules GOT with the addresses to each respective shared
-library symbol.
+references symbolic code or data that live within a shared library.  Consider a call to `libc:printf()` from within the patch code; The address of printf() won’t be known until ld-linux.so has mapped the shared libaries into memory and procesed their relocations. To handle this scenario Shiva incorporates a Post Linker which waits until ldlinux.so has processed all of the symbol relocations for each shared library, and then finalizes fixing up the patch modules GOT with the addresses to each respective shared library symbol.
 
 ### Shiva Post Linker
 The Shiva Post Linking Phase is a great example of what Shiva refers to as Cross-ELFRelocations (Defined as a relocation who’s computation relies on the results of a
@@ -917,7 +912,7 @@ SHIVA_MODULE_PATH=./luab_unpack_secure.o shiva ./redis-server
 
 The Shiva loader performs comprehensive control-flow analysis at load time, which can take upwards of 30 minutes for complex binaries such as redis-server before transferring control to the target program. While this overhead is typically insignificant for standard applications, the shiva-ld prelinking utility addresses this by conducting the analysis a single time and embedding the results in custom ELF sections (.shiva.branch, .shiva.xref, etc.). At runtime, these sections allow Shiva to rapidly reconstruct the required linking metadata, resulting in near-instant binary loading.
  
-You do not need to re-run shiva-ld after modifying a patch. Simply replace the object file (e.g. luab_unpack_secure.o) in the module search path that was specified by the `shiva-ld` tools `-s` flag. Shiva automatically loads the updated patch on the next execution of the instrumented binary (e.g. redis-server.fixed).
+You do not need to re-run shiva-ld after modifying a patch. Simply replace the object file (e.g. luab_unpack_secure.o) in the module search path that was specified by the `shiva-ld`  `-s` or `--search_path`` flag. Shiva automatically loads the updated patch on the next execution of the Shiva prelinked binary (e.g. redis-server.fixed).
 
 Compile the `luab_unpack_secure.c` source code within `darpa-shiva-challenges/redis` using the Makefile, it requires accesses to the lua 5.1 source headers.
 
@@ -933,6 +928,12 @@ Run the following command from the path `darpa-shiva-challenges/redis` to prelin
 <img alt="gaslr_test_source" src="https://arcana-research.io/static/redis-patched.png">
 </p>
 
+
+The prelinked executable`redis-server.fixed` does not segfault when running the `pov1.py` script which reports that `"Server handled the script safely"` indicating to us that the patch resolved the security issue. Awesome!
+
+## Introduction to function splicing in Shiva patches
+
+There are times in a binary patchers life when he comes to realize that Shiva's cool symbol interposition techniques do not always do the trick. There are many cases where a program can only be fixed by splicing code into the existing function. In order to accomplish this Shiva uses enhanced ELF ABI concepts called Transformations. These so-called Transformations are built-on-top of standard relocations. If standard relocations are the meta-data that describe simple (4 to 8 byte) patching operations then **Transformations are the meta-data that describe complex patching operations, such as function splicing.**
 
 <a id="linux-gaslr-implemented-with-an-elf-microprogram"></a>
 ## Linux gASLR implemented with an ELF microprogram
